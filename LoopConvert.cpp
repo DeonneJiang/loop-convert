@@ -306,7 +306,7 @@ int main(int argc, char **argv)
   //compiler.createDiagnostics(argc, argv);
 
   //Create an invocation that passes any flags to preprocessor
-  std::shared_ptr<CompilerInvocation> Invocation = new CompilerInvocation;
+  std::shared_ptr<CompilerInvocation> Invocation = std::make_shared<CompilerInvocation>();
   CompilerInvocation::CreateFromArgs(*Invocation, argv + 1, argv + argc,
                                       compiler.getDiagnostics());
   compiler.setInvocation(Invocation);
