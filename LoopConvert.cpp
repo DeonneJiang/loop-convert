@@ -1135,7 +1135,7 @@ int main(int argc, char **argv)
   // Create an invocation that passes any flags to preprocessor
   auto Invocation = std::make_shared<CompilerInvocation>();
   Invocation->getFrontendOpts().Inputs.push_back(FrontendInputFile("test.cpp",
-                                                                   IK_CXX));
+                                                                   clang::InputKind::CXX));
   Invocation->getFrontendOpts().ProgramAction = frontend::ParseSyntaxOnly;
   compiler.setInvocation(std::move(Invocation));
 
