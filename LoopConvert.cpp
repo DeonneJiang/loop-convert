@@ -274,6 +274,10 @@ bool MyASTConsumer::HandleTopLevelDecl(DeclGroupRef d)
 }
 
 
+
+
+
+
 int main(int argc, char **argv)
 {
   struct stat sb;
@@ -294,21 +298,25 @@ int main(int argc, char **argv)
     exit(EXIT_FAILURE);
   }
 
+
+
   CompilerInstance compiler;
   DiagnosticOptions diagnosticOptions;
   compiler.createDiagnostics();
   //compiler.createDiagnostics(argc, argv);
 
-  // Create an invocation that passes any flags to preprocessor
-  //CompilerInvocation *Invocation = new CompilerInvocation;
-  //CompilerInvocation::CreateFromArgs(*Invocation, argv + 1, argv + argc,
-  //                                    compiler.getDiagnostics());
-  //compiler.setInvocation(Invocation);
+  //Create an invocation that passes any flags to preprocessor
+  std::shared_ptr<CompilerInvocation> Invocation = new CompilerInvocation;
+  CompilerInvocation::CreateFromArgs(*Invocation, argv + 1, argv + argc,
+                                      compiler.getDiagnostics());
+  compiler.setInvocation(Invocation);
+
+
 
   // Set default target triple
-    std::shared_ptr<clang::TargetOptions> pto = std::make_shared<clang::TargetOptions>();
+  std::shared_ptr<clang::TargetOptions> pto = std::make_shared<clang::TargetOptions>();
   pto->Triple = llvm::sys::getDefaultTargetTriple();
-    TargetInfo *pti = TargetInfo::CreateTargetInfo(compiler.getDiagnostics(), pto);
+  TargetInfo *pti = TargetInfo::CreateTargetInfo(compiler.getDiagnostics(), pto);
   compiler.setTarget(pti);
 
   compiler.createFileManager();
