@@ -327,7 +327,7 @@ int main(int argc, char **argv)
                                //clang::InputKind::CXX);
 
   compiler.createPreprocessor(clang::TU_Complete);
-  compiler.getPreprocessorOpts().UsePredefines = false;
+  //compiler.getPreprocessorOpts().UsePredefines = false;
 
   compiler.createASTContext();
 
