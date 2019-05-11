@@ -349,7 +349,7 @@ Expr *MyRecursiveASTVisitor::VisitBinaryOperator(BinaryOperator *E)
   if (E->isLogicalOp())
   {
     // Insert function call at start of first expression.
-    // Note getLocStart() should work as well as getExprLoc()
+    // Note getBeginLoc() should work as well as getExprLoc()
     Rewrite.InsertText(E->getLHS()->getExprLoc(),
              E->getOpcode() == BO_LAnd ? "L_AND(" : "L_OR(", true);
 
@@ -357,7 +357,7 @@ Expr *MyRecursiveASTVisitor::VisitBinaryOperator(BinaryOperator *E)
     Rewrite.ReplaceText(E->getOperatorLoc(), E->getOpcodeStr().size(), ",");
 
     // Insert closing paren at end of right-hand expression
-    Rewrite.InsertTextAfterToken(E->getRHS()->getLocEnd(), ")");
+    Rewrite.InsertTextAfterToken(E->getRHS()->getEndLoc(), ")");
   }
   else
   // Note isComparisonOp() is like isRelationalOp() but includes == and !=
@@ -383,7 +383,7 @@ void MyRecursiveASTVisitor::VisitThinPath(Stmt *s, int flag)
   char char_pos[15]={0}; 
   char inttype[10]={0};
   sprintf(char_pos,"%d",pos);
-  SourceLocation STT = s->getLocStart();
+  SourceLocation STT = s->getBeginLoc();
 
   llvm::errs()<<STT.getRawEncoding()<<"\n";
   if(STT.getRawEncoding()==0)
@@ -398,8 +398,8 @@ void MyRecursiveASTVisitor::VisitThinPath(Stmt *s, int flag)
   }
 
   
-  SourceLocation ST = s->getLocStart();
-  SourceLocation ENDD = s->getLocEnd();
+  SourceLocation ST = s->getBeginLoc();
+  SourceLocation ENDD = s->getEndLoc();
   // Only perform if statement is not compound
   if(flag==1)
   {
@@ -424,7 +424,7 @@ void MyRecursiveASTVisitor::VisitThinPath(Stmt *s, int flag)
 
 
 
-    SourceLocation END = s->getLocEnd();
+    SourceLocation END = s->getEndLoc();
     SourceManager& sr = Rewrite.getSourceMgr();
 
     int offset = Lexer::MeasureTokenLength(END,
@@ -484,12 +484,12 @@ void MyRecursiveASTVisitor::VisitThinPath(Stmt *s, int flag)
 void MyRecursiveASTVisitor::AddrDisinfect(Stmt *s){
 	char temp[100];
     //sprintf(temp,"\tint stack%d = %d;\n",stack,fs);
-    SourceLocation ST = s->getLocStart();
+    SourceLocation ST = s->getBeginLoc();
     SourceManager& sr = Rewrite.getSourceMgr();
     int offset = Lexer::MeasureTokenLength(ST,
                                            Rewrite.getSourceMgr(),
                                            Rewrite.getLangOpts()) + 1;
-    SourceLocation END = s->getLocEnd();
+    SourceLocation END = s->getEndLoc();
     int offset1 = Lexer::MeasureTokenLength(END,
                                            Rewrite.getSourceMgr(),
                                            Rewrite.getLangOpts()) + 1;
@@ -633,7 +633,7 @@ void MyRecursiveASTVisitor::AddrDisinfect(Stmt *s){
 bool MyRecursiveASTVisitor::GetFuncCallGraph(Stmt *s){
 	char temp[100];
     //sprintf(temp,"\tint stack%d = %d;\n",stack,fs);
-    SourceLocation ST = s->getLocStart();
+    SourceLocation ST = s->getBeginLoc();
     SourceManager& sr = Rewrite.getSourceMgr();
     int offset = Lexer::MeasureTokenLength(ST,
                                            Rewrite.getSourceMgr(),
@@ -703,7 +703,7 @@ void MyRecursiveASTVisitor::InstrumentStmt(Stmt *s, int flag)
   infile.close();
   char char_pos[15]={0}; 
   sprintf(char_pos,"%d",pos%100000);
-  SourceLocation STT = s->getLocStart();
+  SourceLocation STT = s->getBeginLoc();
 
   llvm::errs()<<STT.getRawEncoding()<<"\n";
   if(STT.getRawEncoding()==0)
@@ -720,8 +720,8 @@ void MyRecursiveASTVisitor::InstrumentStmt(Stmt *s, int flag)
   
   // Only perform if statement is not compound
   if (flag==2){
-    SourceLocation ST = s->getLocStart();
-    SourceLocation ENDD = s->getLocEnd();
+    SourceLocation ST = s->getBeginLoc();
+    SourceLocation ENDD = s->getEndLoc();
     SourceManager& sr = Rewrite.getSourceMgr();
     int offset = Lexer::MeasureTokenLength(ST,
                                            Rewrite.getSourceMgr(),
@@ -752,8 +752,8 @@ void MyRecursiveASTVisitor::InstrumentStmt(Stmt *s, int flag)
                 \n  int seq_in_byte =1<<(%s%8);\
                 \n  blocks[seq_out_byte]=blocks[seq_out_byte]|seq_in_byte;\n",char_pos,char_pos);
     
-    SourceLocation ST = s->getLocStart();
-    SourceLocation ENDD = s->getLocEnd();
+    SourceLocation ST = s->getBeginLoc();
+    SourceLocation ENDD = s->getEndLoc();
 
     sprintf(temp,"\nblocks[%d] = '1';//%d %d!\n",pos%100000,ST,ENDD);
     llvm::errs() << "Found SwitchStmt!!! \n";
@@ -771,8 +771,8 @@ void MyRecursiveASTVisitor::InstrumentStmt(Stmt *s, int flag)
     // sprintf(temp,"{\n  int seq_out_byte = %s/8;\
                 \n  int seq_in_byte =1<<(%s%8);\
                 \n  blocks[seq_out_byte]=blocks[seq_out_byte]|seq_in_byte;\n",char_pos,char_pos);
-    SourceLocation ST = s->getLocStart();
-    SourceLocation ENDD = s->getLocEnd();
+    SourceLocation ST = s->getBeginLoc();
+    SourceLocation ENDD = s->getEndLoc();
     sprintf(temp,"{\nblocks[%d] = '1';//%d %d@\n",pos%100000,ST,ENDD);
     llvm::errs() << "Found not CompoundStmt!!! \n";
     
@@ -786,12 +786,12 @@ void MyRecursiveASTVisitor::InstrumentStmt(Stmt *s, int flag)
     
     Rewrite.InsertText(ST, temp, true, true);
 
-    // Note Stmt::getLocEnd() returns the source location prior to the
+    // Note Stmt::getEndLoc() returns the source location prior to the
     // token at the end of the line.  For instance, for:
     // var = 123;
-    //      ^---- getLocEnd() points here.
+    //      ^---- getEndLoc() points here.
 
-    SourceLocation END = s->getLocEnd();
+    SourceLocation END = s->getEndLoc();
     SourceManager& sr = Rewrite.getSourceMgr();
 
     // const char *endCharPtr = sr.getCharacterData(END);
@@ -817,14 +817,14 @@ void MyRecursiveASTVisitor::InstrumentStmt(Stmt *s, int flag)
   }
   else{
     // sprintf(temp,"\n  int seq_out_byte = %s/8;\n  int seq_in_byte =1<<(%s%8);\n  blocks[seq_out_byte]=blocks[eq_out_byte]|seq_in_bye;\n",char_pos,char_pos);
-    SourceLocation ENDD = s->getLocEnd();
+    SourceLocation ENDD = s->getEndLoc();
     SourceLocation ST = ((CompoundStmt *)s)->getLBracLoc().getLocWithOffset(1);
     sprintf(temp,"\nblocks[%d] = '1';//%d %d#\n",pos%100000,ST,ENDD);
     llvm::errs() << "Found CompoundStmt \n";
     
     Rewrite.InsertText(ST, temp, true, true);
     /*
-    SourceLocation END = s->getLocEnd();
+    SourceLocation END = s->getEndLoc();
     int offset = Lexer::MeasureTokenLength(END,
         z                                   Rewrite.getSourceMgr(),
                                            Rewrite.getLangOpts()) + 1;
@@ -834,8 +834,8 @@ void MyRecursiveASTVisitor::InstrumentStmt(Stmt *s, int flag)
     */
   }
 
-  // Also note getLocEnd() on a CompoundStmt points ahead of the '}'.
-  // Use getLocEnd().getLocWithOffset(1) to point past it.
+  // Also note getEndLoc() on a CompoundStmt points ahead of the '}'.
+  // Use getEndLoc().getLocWithOffset(1) to point past it.
   //end of function ,blockpos write back
   std::ofstream outfile("loopconvert.txt");
   outfile<<pos;
@@ -940,7 +940,7 @@ bool MyRecursiveASTVisitor::VisitStmt(Stmt *s)
       while(sc)
       {
         Stmt *BODY = sc->getSubStmt();
-        SourceLocation STT = sc->getLocStart();
+        SourceLocation STT = sc->getBeginLoc();
 
         llvm::errs() <<"switch pos"<< STT.getRawEncoding() << "\n";
 
@@ -958,7 +958,7 @@ bool MyRecursiveASTVisitor::VisitStmt(Stmt *s)
   }
   else if (isa<ReturnStmt>(s)){
   	llvm::errs() << "Found Return\n";
-  	SourceLocation ST = s->getLocStart();
+  	SourceLocation ST = s->getBeginLoc();
     SourceManager& sr = Rewrite.getSourceMgr();
     int offset = Lexer::MeasureTokenLength(ST,
                                            Rewrite.getSourceMgr(),
@@ -1065,13 +1065,13 @@ bool MyRecursiveASTVisitor::VisitFunctionDecl(FunctionDecl *f)
       Rewrite.InsertText(ST, fc, true, true);
 	  */
       // Add 
-      SourceLocation INIT = s->getLocStart().getLocWithOffset(1);
+      SourceLocation INIT = s->getBeginLoc().getLocWithOffset(1);
       char temp[256]={0};
       sprintf(temp,"\n\tprint2(\"%s start,\");\n",Funcname);
       Rewrite.InsertText(INIT, temp, true, true);
 
       // Add 
-      SourceLocation END = s->getLocEnd();
+      SourceLocation END = s->getEndLoc();
       FuncEND1 = END;
       char temp2[1000]={0};
       sprintf(temp2,"\n\tprint2(\"%s end,\");\n\t%s\n",Funcname,checkleak);
