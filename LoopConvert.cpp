@@ -368,8 +368,7 @@ int main(int argc, char **argv)
   langOpts.Bool = 1; 
   langOpts.CPlusPlus = 1; 
   Invocation->setLangDefaults(langOpts,
-                               clang::InputKind::IK_CXX,
-                              clang::LangStandard::lang_cxx0x);
+                               clang::InputKind::CXX);
 
   compiler.createPreprocessor(clang::TU_Complete);
   compiler.getPreprocessorOpts().UsePredefines = false;
