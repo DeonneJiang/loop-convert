@@ -300,10 +300,10 @@ int main(int argc, char **argv)
   //compiler.createDiagnostics(argc, argv);
 
   // Create an invocation that passes any flags to preprocessor
-  CompilerInvocation *Invocation = new CompilerInvocation;
-  CompilerInvocation::CreateFromArgs(*Invocation, argv + 1, argv + argc,
-                                      compiler.getDiagnostics());
-  compiler.setInvocation(Invocation);
+  //CompilerInvocation *Invocation = new CompilerInvocation;
+  //CompilerInvocation::CreateFromArgs(*Invocation, argv + 1, argv + argc,
+  //                                    compiler.getDiagnostics());
+  //compiler.setInvocation(Invocation);
 
   // Set default target triple
     std::shared_ptr<clang::TargetOptions> pto = std::make_shared<clang::TargetOptions>();
@@ -316,50 +316,6 @@ int main(int argc, char **argv)
 
   HeaderSearchOptions &headerSearchOptions = compiler.getHeaderSearchOpts();
 
-  // <Warning!!> -- Platform Specific Code lives here
-  // This depends on A) that you're running linux and
-  // B) that you have the same GCC LIBs installed that
-  // I do.
-  // Search through Clang itself for something like this,
-  // go on, you won't find it. The reason why is Clang
-  // has its own versions of std* which are installed under
-  // /usr/local/lib/clang/<version>/include/
-  // See somewhere around Driver.cpp:77 to see Clang adding
-  // its version of the headers to its include path.
-  // To see what include paths need to be here, try
-  // clang -v -c test.c
-  // or clang++ for C++ paths as used below:
-  headerSearchOptions.AddPath("/usr/include/c++/4.6",
-          clang::frontend::Angled,
-          false,
-          false);
-  headerSearchOptions.AddPath("/usr/include/c++/4.6/i686-linux-gnu",
-          clang::frontend::Angled,
-          false,
-          false);
-  headerSearchOptions.AddPath("/usr/include/c++/4.6/backward",
-          clang::frontend::Angled,
-          false,
-          false);
-  headerSearchOptions.AddPath("/usr/local/include",
-          clang::frontend::Angled,
-          false,
-          false);
-  headerSearchOptions.AddPath("/usr/local/lib/clang/3.3/include",
-          clang::frontend::Angled,
-          false,
-          false);
-  headerSearchOptions.AddPath("/usr/include/i386-linux-gnu",
-          clang::frontend::Angled,
-          false,
-          false);
-  headerSearchOptions.AddPath("/usr/include",
-          clang::frontend::Angled,
-          false,
-          false);
-  // </Warning!!> -- End of Platform Specific Code
-
-
   // Allow C++ code to get rewritten
   LangOptions langOpts;
   langOpts.GNUMode = 1; 
@@ -367,8 +323,8 @@ int main(int argc, char **argv)
   langOpts.RTTI = 1; 
   langOpts.Bool = 1; 
   langOpts.CPlusPlus = 1; 
-  Invocation->setLangDefaults(langOpts,
-                               clang::InputKind::CXX);
+  //Invocation->setLangDefaults(langOpts,
+                               //clang::InputKind::CXX);
 
   compiler.createPreprocessor(clang::TU_Complete);
   compiler.getPreprocessorOpts().UsePredefines = false;
