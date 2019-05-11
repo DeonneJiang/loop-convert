@@ -102,7 +102,7 @@ Expr *MyRecursiveASTVisitor::VisitBinaryOperator(BinaryOperator *E)
   if (E->isLogicalOp())
   {
     // Insert function call at start of first expression.
-    // Note getLocStart() should work as well as getExprLoc()
+    // Note getBeginLoc() should work as well as getExprLoc()
     Rewrite.InsertText(E->getLHS()->getExprLoc(),
              E->getOpcode() == BO_LAnd ? "L_AND(" : "L_OR(", true);
 
@@ -110,7 +110,7 @@ Expr *MyRecursiveASTVisitor::VisitBinaryOperator(BinaryOperator *E)
     Rewrite.ReplaceText(E->getOperatorLoc(), E->getOpcodeStr().size(), ",");
 
     // Insert closing paren at end of right-hand expression
-    Rewrite.InsertTextAfterToken(E->getRHS()->getLocEnd(), ")");
+    Rewrite.InsertTextAfterToken(E->getRHS()->getEndLoc(), ")");
   }
   else
   // Note isComparisonOp() is like isRelationalOp() but includes == and !=
@@ -134,7 +134,7 @@ void MyRecursiveASTVisitor::InstrumentStmt(Stmt *s)
   // Only perform if statement is not compound
   if (!isa<CompoundStmt>(s))
   {
-    SourceLocation ST = s->getLocStart();
+    SourceLocation ST = s->getBeginLoc();
 
     // Insert opening brace.  Note the second true parameter to InsertText()
     // says to indent.  Sadly, it will indent to the line after the if, giving:
@@ -144,12 +144,12 @@ void MyRecursiveASTVisitor::InstrumentStmt(Stmt *s)
     //   }
     Rewrite.InsertText(ST, "{\n", true, true);
 
-    // Note Stmt::getLocEnd() returns the source location prior to the
+    // Note Stmt::getEndLoc() returns the source location prior to the
     // token at the end of the line.  For instance, for:
     // var = 123;
-    //      ^---- getLocEnd() points here.
+    //      ^---- getEndLoc() points here.
 
-    SourceLocation END = s->getLocEnd();
+    SourceLocation END = s->getEndLoc();
 
     // MeasureTokenLength gets us past the last token, and adding 1 gets
     // us past the ';'.
@@ -161,8 +161,8 @@ void MyRecursiveASTVisitor::InstrumentStmt(Stmt *s)
     Rewrite.InsertText(END1, "\n}", true, true);
   }
 
-  // Also note getLocEnd() on a CompoundStmt points ahead of the '}'.
-  // Use getLocEnd().getLocWithOffset(1) to point past it.
+  // Also note getEndLoc() on a CompoundStmt points ahead of the '}'.
+  // Use getEndLoc().getLocWithOffset(1) to point past it.
 }
 
 // Override Statements which includes expressions and more
@@ -242,7 +242,7 @@ bool MyRecursiveASTVisitor::VisitFunctionDecl(FunctionDecl *f)
     if (f->isMain())
       llvm::errs() << "Found main()\n";
 
-    SourceLocation END = s->getLocEnd().getLocWithOffset(1);
+    SourceLocation END = s->getEndLoc().getLocWithOffset(1);
     sprintf(fc, "\n// End function %s\n", fname.data());
     Rewrite.InsertText(END, fc, true, true);
   }
