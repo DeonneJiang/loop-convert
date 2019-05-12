@@ -88,8 +88,8 @@ using namespace clang;
 #define _vartypesum 20
 
 int           stmtsum=0;
-std::ofstream out("~/result.txt",std::ios::app);	
-std::ofstream func_blocks("~/func_blocks.txt",std::ios::app);
+std::ofstream out("/root/result.txt",std::ios::app);	
+std::ofstream func_blocks("/root/func_blocks.txt",std::ios::app);
 int           ThinPathSum=0;
 //address disinfect
 int           pos = -1;
