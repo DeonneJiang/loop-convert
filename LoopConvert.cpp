@@ -87,198 +87,31 @@ using namespace clang;
 #define _dangerfuncsum 20
 #define _vartypesum 20
 
-int stmtsum=0;
-std::ofstream out("/home/echo/0lib/wyy/result.txt",std::ios::app);	
-std::ofstream func_blocks("/home/echo/0lib/wyy/func_blocks.txt",std::ios::app);
-/*
-//Thin Path :VisitThinPath
-struct ThinPathAllStruct{
-	int type=0;//1 is switch 2 is if 3 is else 4 is while/for,10 is next if 
-	int start=0;
-	int end=0;
-
-
-}ThinPathAll[100];
-int TheThinPath[100];
-
-int GetThinPath(int num,int site){
-	//return 0 is false,return 1 is real
-	//struct ThinPathAllStruct ThinPathUse[10];
-	int i=0,j=0,k=0;
-	int start=0,end=0;
-	bool pathchoice[100]={0};
-	int possible[100]{0};
-	int thestart,theend,thechoice;
-	int jumpstart,jumpend;
-	int inputlen=0;
-	
-	
-	for (i=0,j=0;i<100;i++){
-		if (ThinPathAll[i].type==0 &&ThinPathAll[i].start==0 &&ThinPathAll[i].end==0) break;
-		if (site<=ThinPathAll[i].end && site>=ThinPathAll[i].start){
-			//ThinPathUse[j].type=ThinPathAll[i].type;
-			//ThinPathUse[j].start=ThinPathAll[i].start;
-			//ThinPathUse[j].end=ThinPathAll[i].end;
-			j++;
-			pathchoice[i]=1;
-		}
-	}
-	inputlen=i-1;
-	llvm::errs() << inputlen <<"\n";
-	for (i=0;i<12;i++){
-		llvm::errs() << pathchoice[i];
-	}
-	for(i=inputlen;i>=0;i--){
-		if (num==0 &&pathchoice[i]==1) return 0;
-		if (num%2==1) pathchoice[i]=1;
-		else if (pathchoice[i]==1) return 0;
-		num/=2;
-		
-	}
-	if (j==0){
-		llvm::errs() <<"Every Path can Get to\n";
-	}
-	for (i=0,k=0;i<100;i++){
-		if (ThinPathAll[i].type==0 &&ThinPathAll[i].start==0 &&ThinPathAll[i].end==0) break;
-		if (ThinPathAll[i].type==1){
-			if (i!=0 &&ThinPathAll[i-1].type==1){
-				possible[k]++;
-			}
-			else{
-				++k;
-				possible[k]=i;
-				++k;
-				possible[k]=2;
-
-			}
-		}
-		else if(ThinPathAll[i].type==2 ||ThinPathAll[i].type==5){
-			++k;
-			possible[k]=i;
-			++k;
-			possible[k]=2;
-		}
-		else if (ThinPathAll[i].type==3){
-			possible[k]++;
-		}
-		else if (ThinPathAll[i].type==4){
-			;
-		}
-		else if(ThinPathAll[i].type==10){
-			possible[k]=(possible[k]-1)*2+1;
-
-		}
-
-	}
-	possible[0]=1;
-	for(i=2;i<=k;i+=2){
-		if (possible[i]!=0){
-			possible[0]*=possible[i];
-		}
-	}
-
-	llvm::errs() <<"poss0:"<<possible[0]<<"\n";
-	for (i=0;i<12;i++){
-    	llvm::errs() <<"poss"<< possible[i*2+1]<<possible[i*2+2]<<"\n";
-    	
-	}
-	for(i=0,k=1;i<inputlen;i++){
-		if (ThinPathAll[i].type==0 &&ThinPathAll[i].start==0 &&ThinPathAll[i].end==0) break;
-		if ((i>=possible[k] && i<possible[k+1])||(i>=possible[k] && possible[k+1]==0)){
-			if (pathchoice[i]==1 && ThinPathAll[i].type==10){
-				for (j=i;j>=possible[k];j--) if (ThinPathAll[j].type!=10) break;
-				if (pathchoice[j]==0) return 0;
-			}
-			else if (pathchoice[i]==1 && ThinPathAll[i].type==3){
-				for (j=possible[k];j<possible[k+1];j++){
-					if (pathchoice[j]==1 &&ThinPathAll[i].type==2) return 0;
-					else if (pathchoice[j]==1 &&ThinPathAll[i].type==4) return 0;
-					else if (pathchoice[j]==1 &&ThinPathAll[i].type==3 &&j!=i) return 0;
-				}
-			}
-		}
-	}
-	
-	int TheThinPathint =1;
-	for (i=0;i<20;i++){
-		TheThinPath[i]=0;
-	}
-	for (k=1;k<100;k+=2){
-		if(possible[k]==0 &&possible[k+1]==0) break;
-		thestart=0xFFFF;
-		theend=0;
-		thechoice=0;
-		for (i=possible[k];i<possible[k+2]||(possible[k+2]==0 && ThinPathAll[i].type!=0);i++){
-			if (ThinPathAll[i].start<thestart) thestart=ThinPathAll[i].start;
-			if (ThinPathAll[i].end>theend) theend=ThinPathAll[i].end;
-			if (pathchoice[i]==1) thechoice++; 
-		}
-		if (thechoice==0){
-			TheThinPath[TheThinPathint]=thestart;
-			TheThinPath[TheThinPathint+1]=theend;
-			TheThinPathint+=2;
-		}
-		else{
-			jumpstart=0xFFFF;
-			jumpend=0;
-			for (i=possible[k];i<possible[k+2]||(possible[k+2]==0 && ThinPathAll[i].type!=0);i++){
-				if (pathchoice[i]==1){
-					jumpstart=ThinPathAll[i].start;
-					jumpend=ThinPathAll[i].end;
-				}
-				else{
-					if (ThinPathAll[i].end<jumpend &&ThinPathAll[i].start>jumpstart){
-						TheThinPath[TheThinPathint]=ThinPathAll[i].start;
-						TheThinPath[TheThinPathint+1]=ThinPathAll[i].start;
-						TheThinPathint+=2;
-						jumpstart = ThinPathAll[i].end;
-					}
-					else{
-						TheThinPath[TheThinPathint]=ThinPathAll[i].start;
-						TheThinPath[TheThinPathint+1]=ThinPathAll[i].end;
-						TheThinPathint+=2;
-					}
-				}
-			}
-			if (jumpend!=0 &&jumpend<theend){
-				TheThinPath[TheThinPathint]=jumpend;
-			TheThinPath[TheThinPathint+1]=theend;
-			TheThinPathint+=2;
-			}
-		}
-	}
-	TheThinPath[TheThinPathint]=-1;
-	for (i=0;i<12;i++){
-    	llvm::errs() <<TheThinPath[i]<<" ";
-	}
-
-
-}*/
-int ThinPathSum=0;
+int           stmtsum=0;
+std::ofstream out("~/result.txt",std::ios::app);	
+std::ofstream func_blocks("~/func_blocks.txt",std::ios::app);
+int           ThinPathSum=0;
 //address disinfect
-int pos = -1;
-int stack = -1;
-int fs = 0;
-int blockflag=0;//define blocks[64000] with extern or not
-char checkleak[1024];
-char vartypearray[_vartypesum][30]={}; // var typt len 20
-int varsumarray[_vartypesum]={0,0,0,0,0,0,0,0,0,0};// var type sum 10
-int varstrategy=0;
+int           pos = -1;
+int           stack = -1;
+int           fs = 0;
+int           blockflag=0;//define blocks[64000] with extern or not
+char          checkleak[1024];
+char          vartypearray[_vartypesum][30]={}; // var typt len 20
+int           varsumarray[_vartypesum]={0,0,0,0,0,0,0,0,0,0};// var type sum 10
+int           varstrategy=0;
 //static analysis
-SourceLocation FuncEnd;
-SourceLocation FuncEND1;
-bool func_call[_funcsum][_funcsum]={0}; // func sum 20,[x][x] = 1,shows vul
-char func_name[_funcsum][_funcnamelen]={0};
-int func_declare[_funcsum]={0};
-int func_declare_sum=0;
-int func_now=0;
-int func_main=0;
-int danger_func_path[2*_funcsum][_funcsum]={0};
-int func_buf[_funcsum]={0};
+SourceLocation  FuncEnd;
+SourceLocation  FuncEND1;
+bool            func_call[_funcsum][_funcsum]={0}; // func sum 20,[x][x] = 1,shows vul
+char            func_name[_funcsum][_funcnamelen]={0};
+int             func_declare[_funcsum]={0};
+int             func_declare_sum=0;
+int             func_now=0;
+int             func_main=0;
+int             danger_func_path[2*_funcsum][_funcsum]={0};
+int             func_buf[_funcsum]={0};
 
-// RecursiveASTVisitor is is the big-kahuna visitor that traverses
-// everything in the AST.
-//clang -cc1 -ast-dump test1.c show the AST
 
 class MyRecursiveASTVisitor
     : public RecursiveASTVisitor<MyRecursiveASTVisitor>
@@ -374,112 +207,9 @@ Expr *MyRecursiveASTVisitor::VisitBinaryOperator(BinaryOperator *E)
 
   return E;
 }
-//VisitThinPath Thin path to vulnerable 
-/*
-void MyRecursiveASTVisitor::VisitThinPath(Stmt *s, int flag)
-{
-  char temp[256]={0};
-  pos++;
-  char char_pos[15]={0}; 
-  char inttype[10]={0};
-  sprintf(char_pos,"%d",pos);
-  SourceLocation STT = s->getBeginLoc();
-
-  llvm::errs()<<STT.getRawEncoding()<<"\n";
-  if(STT.getRawEncoding()==0)
-  {
-    llvm::errs()<<"LocStart == 0, ret\n";
-    return;
-  }
-
-  if(STT.isMacroID())
-  {
-  	llvm::errs() << "isMacroID exists, something error\n";
-  }
-
-  
-  SourceLocation ST = s->getBeginLoc();
-  SourceLocation ENDD = s->getEndLoc();
-  // Only perform if statement is not compound
-  if(flag==1)
-  {
-  	sprintf(inttype,"%d",ST);
-  	sscanf(inttype,"%d",&ThinPathAll[ThinPathSum].start);
-  	sprintf(inttype,"%d",ENDD);
-  	sscanf(inttype,"%d",&ThinPathAll[ThinPathSum].end);
-    ThinPathAll[ThinPathSum].type = flag;
-    ThinPathSum++;
-  }
-  else if (!isa<CompoundStmt>(s))
-  {    
-
-    
-  	sprintf(inttype,"%d",ST);
-  	sscanf(inttype,"%d",&ThinPathAll[ThinPathSum].start);
-  	sprintf(inttype,"%d",ENDD);
-  	sscanf(inttype,"%d",&ThinPathAll[ThinPathSum].end);
-    ThinPathAll[ThinPathSum].type = 10;
-    ThinPathSum++;
 
 
 
-
-    SourceLocation END = s->getEndLoc();
-    SourceManager& sr = Rewrite.getSourceMgr();
-
-    int offset = Lexer::MeasureTokenLength(END,
-                                           Rewrite.getSourceMgr(),
-                                           Rewrite.getLangOpts()) + 1;
-
-    SourceLocation END1 = END.getLocWithOffset(offset);
-    if(END1.getRawEncoding()-ST.getRawEncoding()>1000)
-    {
-	    const char *endCharPtr2 = sr.getCharacterData(ST);
-    	size_t offsentSemicolon = 0;
-    	while(endCharPtr2[offsentSemicolon++]!=';');
-		END1 = ST.getLocWithOffset(offsentSemicolon);
-	}
-
-    llvm::errs()<<"CompoundStmt LocEnd "<<END1.getRawEncoding()<<"\n";
-
-    Rewrite.InsertText(END1, "\n}", true, true);
-  }
-  else{
-    ST = ((CompoundStmt *)s)->getLBracLoc().getLocWithOffset(1);
-
-  	sprintf(inttype,"%d",ST);
-  	sscanf(inttype,"%d",&ThinPathAll[ThinPathSum].start);
-  	sprintf(inttype,"%d",ENDD);
-  	sscanf(inttype,"%d",&ThinPathAll[ThinPathSum].end);
-  	SourceLocation STT = ST.getLocWithOffset(-30);
-  	if (flag==3){
-  		SourceManager& sr = Rewrite.getSourceMgr();
-  		const char *endCharPtr2 = sr.getCharacterData(STT);
-  		char *strhave;
-  		int stroffset = 0;   
-	    char getstrData[100];//all the line
-
-	    while(endCharPtr2[stroffset]!=';'){
-	    	getstrData[stroffset] = endCharPtr2[stroffset];
-	    	stroffset++;
-	    	if (stroffset>80) {
-	    		llvm::errs() << "too long senetnces"<<"\n";
-	    		break;
-	    	}
-	    }
-	    getstrData[stroffset]='\0';
-  		strhave = strstr(getstrData,"else if");
-  		llvm::errs() <<"STT:::"<<getstrData <<"\n";
-  		if (strhave==NULL){
-  			flag=2;
-  		}
-  	}
-    ThinPathAll[ThinPathSum].type = (int)flag;
-    ThinPathSum++;
-
-  }
-
-}*/
 // AddrDisinfect - add after var
 void MyRecursiveASTVisitor::AddrDisinfect(Stmt *s){
 	char temp[100];
