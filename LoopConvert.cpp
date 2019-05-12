@@ -95,15 +95,15 @@ int           ThinPathSum=0;
 int           pos = -1;
 int           stack = -1;
 int           fs = 0;
-int           blockflag=0;//define blocks[64000] with extern or not
+int           blockflag=0;                                    //define blocks[64000] with extern or not
 char          checkleak[1024];
-char          vartypearray[_vartypesum][30]={}; // var typt len 20
-int           varsumarray[_vartypesum]={0,0,0,0,0,0,0,0,0,0};// var type sum 10
+char          vartypearray[_vartypesum][30]={};               // var typt len 20
+int           varsumarray[_vartypesum]={0,0,0,0,0,0,0,0,0,0}; // var type sum 10
 int           varstrategy=0;
 //static analysis
 SourceLocation  FuncEnd;
 SourceLocation  FuncEND1;
-bool            func_call[_funcsum][_funcsum]={0}; // func sum 20,[x][x] = 1,shows vul
+bool            func_call[_funcsum][_funcsum]={0};            // func sum 20,[x][x] = 1,shows vul
 char            func_name[_funcsum][_funcnamelen]={0};
 int             func_declare[_funcsum]={0};
 int             func_declare_sum=0;
@@ -132,7 +132,7 @@ class MyRecursiveASTVisitor
 };
 
 
-
+// Decl instrument
 bool MyRecursiveASTVisitor::VisitDecl(Decl* d){    
     ASTContext& ctx = d->getASTContext();
     SourceManager& sm = ctx.getSourceManager();
@@ -424,7 +424,7 @@ bool MyRecursiveASTVisitor::GetFuncCallGraph(Stmt *s){
     }
 }
 
-
+// Stmt Instrument
 void MyRecursiveASTVisitor::InstrumentStmt(Stmt *s, int flag)
 {
   char temp[256]={0};
@@ -813,6 +813,10 @@ bool MyRecursiveASTVisitor::VisitFunctionDecl(FunctionDecl *f)
 
 
 
+
+
+// Unchanged from the cirewriter ----- begin
+
 class MyASTConsumer : public ASTConsumer
 {
  public:
@@ -822,7 +826,6 @@ class MyASTConsumer : public ASTConsumer
 
   MyRecursiveASTVisitor rv;
 };
-
 
 bool MyASTConsumer::HandleTopLevelDecl(DeclGroupRef d)
 {
@@ -836,7 +839,7 @@ bool MyASTConsumer::HandleTopLevelDecl(DeclGroupRef d)
   return true; // keep going
 }
 
-
+// Unchanged from the cirewriter ----- end
 
 int main(int argc, char **argv)
 {
@@ -917,10 +920,17 @@ int main(int argc, char **argv)
      ext = outName.length();
   outName.insert(ext, "_out");
 
+
   llvm::errs() << "Output to: " << outName << "\n";
   std::error_code OutErrorInfo;
   std::error_code ok;
   llvm::raw_fd_ostream outFile(llvm::StringRef(outName), OutErrorInfo, llvm::sys::fs::F_None);
+
+
+
+
+
+  //TODO
 
   if (OutErrorInfo == ok)
   {
@@ -963,8 +973,6 @@ int main(int argc, char **argv)
   }
 
   outFile.close();
-
-
 
   //GetThinPath(0x1,715);
   //ResetFuncName();
