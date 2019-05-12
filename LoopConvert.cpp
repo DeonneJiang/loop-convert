@@ -131,8 +131,9 @@ class MyRecursiveASTVisitor
   Rewriter &Rewrite;
 };
 
-bool MyRecursiveASTVisitor::VisitDecl(Decl* d)
-{    
+
+
+bool MyRecursiveASTVisitor::VisitDecl(Decl* d){    
     ASTContext& ctx = d->getASTContext();
     SourceManager& sm = ctx.getSourceManager();
     
@@ -175,9 +176,9 @@ bool MyRecursiveASTVisitor::VisitDecl(Decl* d)
     return true;
    /* */
 }
+
 // Override Binary Operator expressions
-Expr *MyRecursiveASTVisitor::VisitBinaryOperator(BinaryOperator *E)
-{
+Expr *MyRecursiveASTVisitor::VisitBinaryOperator(BinaryOperator *E){
   // Determine type of binary operator
   if (E->isLogicalOp())
   {
@@ -207,8 +208,6 @@ Expr *MyRecursiveASTVisitor::VisitBinaryOperator(BinaryOperator *E)
 
   return E;
 }
-
-
 
 // AddrDisinfect - add after var
 void MyRecursiveASTVisitor::AddrDisinfect(Stmt *s){
@@ -424,6 +423,8 @@ bool MyRecursiveASTVisitor::GetFuncCallGraph(Stmt *s){
     	llvm::errs() << "too much functions"<< "\n";
     }
 }
+
+
 void MyRecursiveASTVisitor::InstrumentStmt(Stmt *s, int flag)
 {
   char temp[256]={0};
@@ -572,11 +573,8 @@ void MyRecursiveASTVisitor::InstrumentStmt(Stmt *s, int flag)
   outfile.close();
 }
 
-
-
 // Override Statements which includes expressions and more
-bool MyRecursiveASTVisitor::VisitStmt(Stmt *s)
-{
+bool MyRecursiveASTVisitor::VisitStmt(Stmt *s){
   int flag = 0;
   llvm::errs() << "Stmt Name :: " << s->getStmtClassName()<<"\n";
   stmtsum++;
@@ -813,6 +811,8 @@ bool MyRecursiveASTVisitor::VisitFunctionDecl(FunctionDecl *f)
   return true; // returning false aborts the traversal
 }
 
+
+
 class MyASTConsumer : public ASTConsumer
 {
  public:
@@ -835,6 +835,8 @@ bool MyASTConsumer::HandleTopLevelDecl(DeclGroupRef d)
 
   return true; // keep going
 }
+
+
 
 int main(int argc, char **argv)
 {
@@ -934,7 +936,7 @@ int main(int argc, char **argv)
     outFile << "#endif\n";
 
     char fc[256];
-    std::ifstream infile("loopconvert.txt");
+    std::ifstream infile("/root/loopconvert.txt");
     infile>>blockflag;
     infile.close();
     if (blockflag>=100000){
@@ -944,7 +946,7 @@ int main(int argc, char **argv)
     else {
     	outFile << "\nunsigned char blocks[1000]={0};\n";
     	blockflag+=100000;
-    	std::ofstream outfile("loopconvert.txt");
+    	std::ofstream outfile("/root/loopconvert.txt");
         outfile<<blockflag;
         outfile.close();
     }
@@ -961,6 +963,8 @@ int main(int argc, char **argv)
   }
 
   outFile.close();
+
+
 
   //GetThinPath(0x1,715);
   //ResetFuncName();
