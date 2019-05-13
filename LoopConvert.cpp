@@ -63,6 +63,8 @@
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Analysis/MemoryBuiltins.h"
+
 
 #include "clang/Basic/DiagnosticOptions.h"
 #include "clang/Frontend/TextDiagnosticPrinter.h"
@@ -127,6 +129,8 @@ class MyRecursiveASTVisitor
   bool VisitStmt(Stmt *s);
   bool VisitFunctionDecl(FunctionDecl *f);
   Expr *VisitBinaryOperator(BinaryOperator *op);
+  SizeOffsetType 	visitGlobalVariable (GlobalVariable &GV);
+
 
   Rewriter &Rewrite;
 };
@@ -177,7 +181,10 @@ bool MyRecursiveASTVisitor::VisitDecl(Decl* d){
    /* */
 }
 
-
+SizeOffsetType 	MyRecursiveASTVisitor::visitGlobalVariable (GlobalVariable &GV){
+  llvm::error<< "sssssss";
+  return 0;
+}
 
 
 // Override Binary Operator expressions
@@ -211,6 +218,10 @@ Expr *MyRecursiveASTVisitor::VisitBinaryOperator(BinaryOperator *E){
 
   return E;
 }
+
+
+
+
 
 // AddrDisinfect - add after var
 void MyRecursiveASTVisitor::AddrDisinfect(Stmt *s){
