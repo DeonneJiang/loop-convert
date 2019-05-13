@@ -129,7 +129,7 @@ class MyRecursiveASTVisitor
   bool VisitStmt(Stmt *s);
   bool VisitFunctionDecl(FunctionDecl *f);
   Expr *VisitBinaryOperator(BinaryOperator *op);
-  int 	visitGlobalVariable (GlobalVariable &GV);
+  //int 	visitGlobalVariable (GlobalVariable &GV);
 
 
   Rewriter &Rewrite;
@@ -181,10 +181,7 @@ bool MyRecursiveASTVisitor::VisitDecl(Decl* d){
    /* */
 }
 
-int 	MyRecursiveASTVisitor::visitGlobalVariable (GlobalVariable &GV){
-  llvm::error<< "sssssss";
-  return 0;
-}
+
 
 
 // Override Binary Operator expressions
