@@ -16,6 +16,8 @@ int main(){
 
     int d;
 
+    int g = 100;
+
     int a[100] = {0};
     function1();
     function2();
