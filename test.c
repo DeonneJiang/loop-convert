@@ -13,6 +13,9 @@ int function2(){ int a = 2; return a;}
 
 
 int main(){
+
+    int d;
+
     int a[100] = {0};
     function1();
     function2();
