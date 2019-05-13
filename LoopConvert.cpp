@@ -585,7 +585,7 @@ bool MyRecursiveASTVisitor::VisitStmt(Stmt *s){
   if(isa<DeclStmt>(s))
   {
     stack++;  
-    llvm::errs() << "DeclStmt Found \n";
+    llvm::errs() << "DeclStmt Found------------- \n";
     AddrDisinfect(s);
   }
     
