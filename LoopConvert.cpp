@@ -842,19 +842,19 @@ bool MyASTConsumer::HandleTopLevelDecl(DeclGroupRef d)
 // Unchanged from the cirewriter ----- end
 
 // malloc place
-ast_matchers::StatementMatcher MallocVarMatcher =    declRefExpr(
-                                                        hasParent(
+ast_matchers::StatementMatcher MallocVarMatcher =    ast_matchers::declRefExpr(
+                                                        ast_matchers::hasParent(
                                                             binaryOperator(
-                                                                hasOperatorName("="),
-                                                                hasRHS(
-                                                                    cStyleCastExpr(
-                                                                        has(
+                                                                ast_matchers::hasOperatorName("="),
+                                                                ast_matchers::hasRHS(
+                                                                    ast_matchers::cStyleCastExpr(
+                                                                        ast_matchers::has(
                                                                             callExpr(
-                                                                                has(
-                                                                                    declRefExpr(
-                                                                                        to(
+                                                                                ast_matchers::has(
+                                                                                    ast_matchers::declRefExpr(
+                                                                                        ast_matchers::to(
                                                                                             functionDecl(
-                                                                                                hasName("malloc")
+                                                                                                ast_matchers::hasName("malloc")
                                                                                             )
                                                                                         )
                                                                                     )
