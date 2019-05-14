@@ -60,7 +60,6 @@
 #include "clang/Tooling/Tooling.h"
 // Declares llvm::cl::extrahelp.
 #include "llvm/Support/CommandLine.h"
-#include "clang/AST/ASTContext.h"
 using namespace clang;
 
 
@@ -919,15 +918,11 @@ ast_matchers::StatementMatcher MallocMatcher =        ast_matchers::binaryOperat
                                                             )
                                                         )
                                                       ).bind("malloc");
+//
 
 
 
-
-
-
-
-
-
+//
 int main(int argc, char **argv)
 {
   struct stat sb;

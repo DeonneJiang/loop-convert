@@ -104,3 +104,12 @@ void func1(){ func3();}
 void func2(){ func3();}
 
 
+
+void MyRecursiveASTVisitor::InstrumentStmt(Stmt *s){
+	//Only perform if statement is not compund
+	if( !isa<CompundStmt>(s)){
+		SourceLocation ST = s->getBeginLoc();
+		Rewrite.Insert(ST, "{\n", true, true);
+	}
+}
+
