@@ -133,12 +133,19 @@ class MyRecursiveASTVisitor
   //int 	visitGlobalVariable (GlobalVariable &GV);
 
 
+  bool VisitGlobalDecl(GlobalDecl *gd);
+
   Rewriter &Rewrite;
 };
 
 
 bool MyRecursiveASTVisitor::VisitVarDecl(VarDecl* v){
   llvm::errs()<< "we find a var decl!!!!!\n";
+  return true;
+}
+
+bool MyRecursiveASTVisitor::VisitGlobalDecl(GlobalDecl *gd){
+  llvm::errs()<< "we find a global decl!!!!!\n" << gd->Decl() << "\n";
   return true;
 }
 
