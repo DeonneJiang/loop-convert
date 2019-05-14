@@ -56,16 +56,16 @@
 #include <vector>
 #include <system_error>
 #include <fstream>
-#include <iostream>
-
+#include <algorithm>
+#include "iostream"
+#include <cstdio>
+#include <cstdlib>
 #include "llvm/Support/Host.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
-
-
 #include "clang/Basic/DiagnosticOptions.h"
 #include "clang/Frontend/TextDiagnosticPrinter.h"
 #include "clang/Frontend/CompilerInstance.h"
@@ -82,11 +82,6 @@
 #include "clang/Parse/ParseAST.h"
 #include "clang/Rewrite/Frontend/Rewriters.h"
 #include "clang/Rewrite/Core/Rewriter.h"
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <stdio.h>
-#include <vector>
-//#include <fstream>
 #include "llvm/Support/Host.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
@@ -109,11 +104,8 @@
 #include "clang/Rewrite/Core/Rewriter.h"
 #include "clang/AST/ASTContext.h"
 #include "clang-c/Index.h"
-#include <algorithm>
-
 #include "clang/ASTMatchers/ASTMatchers.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
-
 // Declares clang::SyntaxOnlyAction.
 #include "clang/Frontend/FrontendActions.h"
 #include "clang/Tooling/CommonOptionsParser.h"
@@ -121,12 +113,6 @@
 // Declares llvm::cl::extrahelp.
 #include "llvm/Support/CommandLine.h"
 #include "clang/AST/ASTContext.h"
-#include "iostream"
-#include <cstdio>
-#include <cstdlib>
-#include <fstream>
-#include <algorithm>
-#include <vector>
 using namespace clang;
 
 
