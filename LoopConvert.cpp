@@ -128,10 +128,7 @@
 #include <algorithm>
 #include <vector>
 using namespace clang;
-using namespace clang::tooling;
-using namespace llvm;
-using namespace clang;
-using namespace clang::ast_matchers;
+
 
 
 
