@@ -842,6 +842,35 @@ bool MyASTConsumer::HandleTopLevelDecl(DeclGroupRef d)
 // Unchanged from the cirewriter ----- end
 
 // malloc place
+ast_matchers::StatementMatcher FreeVarMatcher = ast_matchers::declRefExpr(
+                                                  ast_matchers::hasParent(
+                                                    ast_matchers::implicitCastExpr(
+                                                      ast_matchers::hasParent(
+                                                        ast_matchers::implicitCastExpr(
+                                                          ast_matchers::hasParent(
+                                                            ast_matchers::callExpr(
+                                                              ast_matchers::has(
+                                                                ast_matchers::declRefExpr(
+                                                                  ast_matchers::to(
+                                                                    ast_matchers::functionDecl(
+                                                                      ast_matchers::hasName("free")))))))))))).bind("freeVar");                
+
+
+
+
+ast_matchers::StatementMatcher FreeMatcher =  ast_matchers::callExpr(
+                                    ast_matchers::has(
+                                        ast_matchers::declRefExpr(
+                                            ast_matchers::to(
+                                                ast_matchers::functionDecl(
+                                                    ast_matchers::hasName("free")
+                                                )
+                                            )
+                                        )
+                                    )
+                                ).bind("free");
+
+
 ast_matchers::StatementMatcher MallocVarMatcher =    ast_matchers::declRefExpr(
                                                         ast_matchers::hasParent(
                                                             ast_matchers::binaryOperator(
