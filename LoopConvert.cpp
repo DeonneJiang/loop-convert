@@ -146,7 +146,7 @@ bool MyRecursiveASTVisitor::VisitVarDecl(VarDecl* v){
 }
 
 bool MyRecursiveASTVisitor::VisitGlobalDecl(GlobalDecl *gd){
-  llvm::errs()<< "we find a global decl!!!!!\n" << gd->Decl() << "\n";
+  llvm::errs()<< "we find a global decl!!!!!\n" << gd->getDecl() << "\n";
   return true;
 }
 
