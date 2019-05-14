@@ -844,16 +844,16 @@ bool MyASTConsumer::HandleTopLevelDecl(DeclGroupRef d)
 // malloc place
 ast_matchers::StatementMatcher MallocVarMatcher =    ast_matchers::declRefExpr(
                                                         ast_matchers::hasParent(
-                                                            binaryOperator(
+                                                            ast_matchers::binaryOperator(
                                                                 ast_matchers::hasOperatorName("="),
                                                                 ast_matchers::hasRHS(
                                                                     ast_matchers::cStyleCastExpr(
                                                                         ast_matchers::has(
-                                                                            callExpr(
+                                                                            ast_matchers::callExpr(
                                                                                 ast_matchers::has(
                                                                                     ast_matchers::declRefExpr(
                                                                                         ast_matchers::to(
-                                                                                            functionDecl(
+                                                                                            ast_matchers::functionDecl(
                                                                                                 ast_matchers::hasName("malloc")
                                                                                             )
                                                                                         )
