@@ -138,7 +138,7 @@ class MyRecursiveASTVisitor
 
 
 bool MyRecursiveASTVisitor::VisitVarDecl(VarDecl* v){
-  llvm::error<< "sssss";
+  llvm::errs()<< "sssss";
   return true;
 }
 
