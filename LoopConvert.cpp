@@ -129,11 +129,18 @@ class MyRecursiveASTVisitor
   bool VisitStmt(Stmt *s);
   bool VisitFunctionDecl(FunctionDecl *f);
   Expr *VisitBinaryOperator(BinaryOperator *op);
+  bool VisitVarDecl(VarDecl *v);
   //int 	visitGlobalVariable (GlobalVariable &GV);
 
 
   Rewriter &Rewrite;
 };
+
+
+bool MyRecursiveASTVisitor::VisitVarDecl(VarDecl* v){
+  llvm::error<< "sssss";
+  return true;
+}
 
 
 // Decl instrument
