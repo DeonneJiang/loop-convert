@@ -869,11 +869,35 @@ ast_matchers::StatementMatcher MallocVarMatcher =    ast_matchers::declRefExpr(
 
 
 
+ast_matchers::StatementMatcher MallocMatcher =        ast_matchers::binaryOperator(
+                                                        ast_matchers::hasOperatorName("="),
+                                                        //hasLHS(anything()),
+                                                        ast_matchers::hasRHS(
+                                                            ast_matchers::cStyleCastExpr(
+                                                                ast_matchers::has(
+                                                                    ast_matchers::callExpr(
+                                                                        ast_matchers::has(
+                                                                            ast_matchers::declRefExpr(
+                                                                                ast_matchers::to(
+                                                                                    ast_matchers::functionDecl(
+                                                                                        ast_matchers::hasName("malloc")
+                                                                                    )
+                                                                                )
+                                                                            )
+                                                                        )
+                                                                    )
+                                                                )
+                                                            )
+                                                        )
+                                                      ).bind("malloc");
 
 
 
 
-//
+
+
+
+
 
 int main(int argc, char **argv)
 {
