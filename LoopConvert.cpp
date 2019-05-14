@@ -1,4 +1,87 @@
-#define DEBUG
+/***   CIrewriter.cpp   ******************************************************
+ * This code is licensed under the New BSD license.
+ * See LICENSE.txt for details.
+ *
+ * This tutorial was written by Robert Ankeney.
+ * Send comments to rrankene@gmail.com.
+ * 
+ * This tutorial is an example of using the Clang Rewriter class coupled
+ * with the RecursiveASTVisitor class to parse and modify C code.
+ *
+ * Expressions of the form:
+ *     (expr1 && expr2)
+ * are rewritten as:
+ *     L_AND(expr1, expr2)
+ * and expressions of the form:
+
+ *     (expr1 || expr2)
+ * are rewritten as:a
+ *     L_OR(expr1, expr2)
+ *
+ * Functions are located and a comment is placed before and after the function.
+ *
+ * Statements of the type:
+ *   if (expr)
+ *      xxx;
+ *   else
+ *      yyy;
+ *
+ * are converted to:
+ *   if (expr)
+ *   {
+ *      xxx;
+ *   }
+ *   else
+ *   {
+ *      yyy;
+ *   }
+ *
+ * And similarly for while and for statements.
+ *
+ * Interesting information is printed on stderr.
+ *
+ * Usage:
+ * CIrewriter <options> <file>.c
+ * where <options> allow for parameters to be passed to the preprocessor
+ * such as -DFOO to define FOO.
+ *
+ * Generated as output <file>_out.c
+ *
+ * Note: This tutorial uses the CompilerInstance object which has as one of
+ * its purposes to create commonly used Clang types.
+ *****************************************************************************/
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <stdio.h>
+#include <vector>
+#include <system_error>
+#include <fstream>
+#include <iostream>
+
+#include "llvm/Support/Host.h"
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/ADT/IntrusiveRefCntPtr.h"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Analysis/MemoryBuiltins.h"
+
+
+#include "clang/Basic/DiagnosticOptions.h"
+#include "clang/Frontend/TextDiagnosticPrinter.h"
+#include "clang/Frontend/CompilerInstance.h"
+#include "clang/Basic/TargetOptions.h"
+#include "clang/Basic/TargetInfo.h"
+#include "clang/Basic/FileManager.h"
+#include "clang/Basic/SourceManager.h"
+#include "clang/Lex/Preprocessor.h"
+#include "clang/Lex/Lexer.h"
+#include "clang/Basic/Diagnostic.h"
+#include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/AST/ASTConsumer.h"
+#include "clang/AST/GlobalDecl.h"
+#include "clang/Parse/ParseAST.h"
+#include "clang/Rewrite/Frontend/Rewriters.h"
+#include "clang/Rewrite/Core/Rewriter.h"
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <stdio.h>
@@ -9,7 +92,6 @@
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/FileSystem.h"
-
 #include "clang/Basic/DiagnosticOptions.h"
 #include "clang/Frontend/TextDiagnosticPrinter.h"
 #include "clang/Frontend/CompilerInstance.h"
@@ -26,14 +108,11 @@
 #include "clang/Rewrite/Frontend/Rewriters.h"
 #include "clang/Rewrite/Core/Rewriter.h"
 #include "clang/AST/ASTContext.h"
-
 #include "clang-c/Index.h"
 #include <algorithm>
 
-//
 #include "clang/ASTMatchers/ASTMatchers.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
-
 
 // Declares clang::SyntaxOnlyAction.
 #include "clang/Frontend/FrontendActions.h"
@@ -48,545 +127,938 @@
 #include <fstream>
 #include <algorithm>
 #include <vector>
+using namespace clang;
 using namespace clang::tooling;
 using namespace llvm;
 using namespace clang;
 using namespace clang::ast_matchers;
 
-const int BUFSIZE = 80;
-std::string checkDataFileName = "checkData1.txt";//存入遍历free时得到的信息
-
-typedef struct checkPoint{
-    //std::string flagName;
-    std::string name;//插入点的变量
-    int row,col;//行号,列号
-    std::string declName;//原先定义的位置,先保留不用
-    int declRow,declCol;   
-}checkPoint;
-std::vector<checkPoint> cpVec;//存malloc时得到的点
-std::vector<checkPoint> cpVecF;//存free时得到的点,临时使用
 
 
-Rewriter rewrite;
+#define _funcsum 70
+#define _funcnamelen 50
+#define _dangerfuncsum 20
+#define _vartypesum 20
 
-//将loc的string信息变为row,col
-inline void loc_strToint(int & int_loc_row,int & int_loc_col,const char*str_loc){
-    char buf[BUFSIZE];
-    sscanf(str_loc,"%[^:]:%d:%d",buf,&int_loc_row,&int_loc_col);
-}
+int           stmtsum=0;
+std::ofstream out("/root/result.txt",std::ios::app);	
+std::ofstream func_blocks("/root/func_blocks.txt",std::ios::app);
+int           ThinPathSum=0;
+//address disinfect
+int           pos = -1;
+int           stack = -1;
+int           fs = 0;
+int           blockflag=0;                                    //define blocks[64000] with extern or not
+char          checkleak[1024];
+char          vartypearray[_vartypesum][30]={};               // var typt len 20
+int           varsumarray[_vartypesum]={0,0,0,0,0,0,0,0,0,0}; // var type sum 10
+int           varstrategy=0;
+//static analysis
+SourceLocation  FuncEnd;
+SourceLocation  FuncEND1;
+bool            func_call[_funcsum][_funcsum]={0};            // func sum 20,[x][x] = 1,shows vul
+char            func_name[_funcsum][_funcnamelen]={0};
+int             func_declare[_funcsum]={0};
+int             func_declare_sum=0;
+int             func_now=0;
+int             func_main=0;
+int             danger_func_path[2*_funcsum][_funcsum]={0};
+int             func_buf[_funcsum]={0};
 
-//---跟以前的一样
+
 class MyRecursiveASTVisitor
     : public RecursiveASTVisitor<MyRecursiveASTVisitor>
 {
-    public:
-    MyRecursiveASTVisitor(Rewriter &R) : Rewrite(R) { }
-    bool VisitVarDecl(VarDecl *d);
-    Rewriter &Rewrite;
-};
-bool MyRecursiveASTVisitor::VisitVarDecl(VarDecl *d){
-	return true;
-}
-class MyASTConsumer : public ASTConsumer{
+
  public:
-	MyASTConsumer(Rewriter &Rewrite) : rv(Rewrite){
-	}
-	virtual bool HandleTopLevelDecl(DeclGroupRef d);
-    MyRecursiveASTVisitor rv;
+  MyRecursiveASTVisitor(Rewriter &R) : Rewrite(R) { }
+  bool VisitDecl(Decl* d);
+  void InstrumentStmt(Stmt *s,int flag);
+  bool GetFuncCallGraph(Stmt *s);
+  void AddrDisinfect(Stmt *s);
+  void VisitThinPath(Stmt *s,int flag);
+  bool VisitStmt(Stmt *s);
+  bool VisitFunctionDecl(FunctionDecl *f);
+  Expr *VisitBinaryOperator(BinaryOperator *op);
+  bool VisitVarDecl(VarDecl *v);
+  //int 	visitGlobalVariable (GlobalVariable &GV);
+
+
+  bool VisitGlobalDecl(GlobalDecl *gd);
+
+  Rewriter &Rewrite;
 };
+
+
+bool MyRecursiveASTVisitor::VisitVarDecl(VarDecl* v){
+  llvm::errs()<< "we find a var decl!!!!!\n";
+  return true;
+}
+
+bool MyRecursiveASTVisitor::VisitGlobalDecl(GlobalDecl *gd){
+  llvm::errs()<< "we find a global decl!!!!!\n" << gd->getDecl() << "\n";
+  return true;
+}
+
+// Decl instrument
+bool MyRecursiveASTVisitor::VisitDecl(Decl* d){    
+    ASTContext& ctx = d->getASTContext();
+    SourceManager& sm = ctx.getSourceManager();
+    
+
+    const RawComment* rc = d->getASTContext().getRawCommentForDeclNoCache(d);
+    if (rc)
+    {
+        llvm::errs() << "comment found\n";
+        //Found comment!
+        SourceRange range = rc->getSourceRange();
+
+        PresumedLoc startPos = sm.getPresumedLoc(range.getBegin());
+        PresumedLoc endPos = sm.getPresumedLoc(range.getEnd());
+
+        std::string raw = rc->getRawText(sm);
+        std::string brief = rc->getBriefText(ctx);
+
+        llvm::errs() << "raw:" << raw << "\n";
+        llvm::errs() << "brief:" << brief << "\n";
+
+        //SourceLocation ST = ((CompoundStmt *)s)->getLBracLoc().getLocWithOffset(1);
+        //Rewrite.InsertText(range.getEnd(), "/*-----------*/", true, true);
+        if(brief=="write covercity"){ 				//modify here to accomplish icom
+             char temp2[1000]={0};
+             sprintf(temp2,"\n  FILE *fp;\
+                   \n  if((fp=fopen(\"abc\",\"wt+\")) == NULL){\
+                   \n  printf(\"error\");\
+                   \n  return -1;\
+                   \n  }\
+                   \n  fwrite(blocks,sizeof(unsigned char),64000,fp);\
+                   \n  fclose(fp);\
+                   \n");
+
+             Rewrite.InsertText(range.getEnd(), temp2, true, true);
+        }
+        
+        // ... Do something with positions or comments
+    }
+
+    return true;
+   /* */
+}
+
+// Override Binary Operator expressions
+Expr *MyRecursiveASTVisitor::VisitBinaryOperator(BinaryOperator *E){
+  // Determine type of binary operator
+  if (E->isLogicalOp())
+  {
+    // Insert function call at start of first expression.
+    // Note getBeginLoc() should work as well as getExprLoc()
+    Rewrite.InsertText(E->getLHS()->getExprLoc(),
+             E->getOpcode() == BO_LAnd ? "L_AND(" : "L_OR(", true);
+
+    // Replace operator ("||" or "&&") with ","
+    Rewrite.ReplaceText(E->getOperatorLoc(), E->getOpcodeStr().size(), ",");
+
+    // Insert closing paren at end of right-hand expression
+    Rewrite.InsertTextAfterToken(E->getRHS()->getEndLoc(), ")");
+  }
+  else
+  // Note isComparisonOp() is like isRelationalOp() but includes == and !=
+  if (E->isRelationalOp())
+  {
+    llvm::errs() << "Relational Op " << E->getOpcodeStr() << "\n";
+  }
+  else
+  // Handles == and != comparisons
+  if (E->isEqualityOp())
+  {
+    llvm::errs() << "Equality Op " << E->getOpcodeStr() << "\n";
+  }
+
+  return E;
+}
+
+
+// AddrDisinfect - add after var
+void MyRecursiveASTVisitor::AddrDisinfect(Stmt *s){
+	char temp[100];
+    //sprintf(temp,"\tint stack%d = %d;\n",stack,fs);
+    SourceLocation ST = s->getBeginLoc();
+    SourceManager& sr = Rewrite.getSourceMgr();
+    int offset = Lexer::MeasureTokenLength(ST,
+                                           Rewrite.getSourceMgr(),
+                                           Rewrite.getLangOpts()) + 1;
+    SourceLocation END = s->getEndLoc();
+    int offset1 = Lexer::MeasureTokenLength(END,
+                                           Rewrite.getSourceMgr(),
+                                           Rewrite.getLangOpts()) + 1;
+    SourceLocation END1 = END.getLocWithOffset(offset1);
+    int STgre = ST.getRawEncoding();
+    const char *endCharPtr2 = sr.getCharacterData(ST);
+    int stroffset = 0;
+    int i=0,j=0;
+   
+    char getstrData[100];//all the line
+    char getvarName[100];//var name
+
+    while(endCharPtr2[stroffset]!=';'){
+    	getstrData[stroffset] = endCharPtr2[stroffset];
+    	stroffset++;
+    	if (stroffset>80) {
+    		llvm::errs() << "too long senetnces"<<"\n";
+    		break;
+    	}
+    }
+    getstrData[stroffset]='\0';
+    varstrategy = 0;
+    char *pp;
+    pp = strchr(getstrData,'[');
+    if (pp!=NULL) varstrategy = 1;
+    pp = strstr(getstrData,"long long");
+    if (pp!=NULL) varstrategy = 1;
+    
+    while(getstrData[stroffset--]!=' ');
+    if (getstrData[stroffset]=='=') {
+    	stroffset--;
+        while(getstrData[stroffset--]!=' ');
+        stroffset--;
+        while(getstrData[stroffset--]!=' ');
+    }
+    
+    stroffset+=2;
+    i=0;
+    //llvm::errs()<<"AAAA";
+    while(getstrData[i+stroffset]!=';'&&getstrData[i+stroffset]!='='){
+    	getvarName[i] = getstrData[i+stroffset];
+    	i++;
+    	if (i>80) {
+    		llvm::errs() << "too long senetnces"<<"\n";
+    		break;
+    	}
+    }
+    //llvm::errs()<<"BBBB";
+    getvarName[i] = '\0';
+    getstrData[--stroffset]='\0';
+
+    i=0;
+    while (varsumarray[i]!=0){
+    	if (strcmp(vartypearray[i],getstrData)==0){
+    		varsumarray[i]+=1;
+    		break;
+    	}
+    	i++;
+    	if (i>=_vartypesum) {
+    		llvm::errs() << "too much var type"<<"\n";
+    		break;
+    	}
+    }
+    if (varsumarray[i]==0){
+    	strcpy(vartypearray[i],getstrData);
+    	varsumarray[i]=1;
+    }
+
+    if (varstrategy==1){
+
+    	sprintf(temp,"\tchar v%d%d[8]={'\\x12','\\x34','\\x56','\\x78','\\x13','\\x24','\\x79','\\x00'};\n",i,varsumarray[i]);
+    	Rewrite.InsertText(ST, temp, true, true);
+    }
+    else if(varsumarray[i]==1){
+    	sprintf(temp,"\t%s v%d0=0x23;\n\t%s v%d%d=0x45;\n\tv%d0=&v%d%d - &%s;\n\tif (v%d0>0) ;\n",getstrData,i,getstrData,i,varsumarray[i],i,i,varsumarray[i],getvarName,i);
+        
+        
+        Rewrite.InsertText(END1, temp, true, true);
+
+    }
+    else{
+    	sprintf(temp,"\t%s v%d%d=0x45;\n\t%s v%d0=&v%d%d - &%s;\n\tif (v%d0>0) ;\n",getstrData,i,varsumarray[i],getstrData,i,i,varsumarray[i],getvarName,i);
+        
+        
+        Rewrite.InsertText(END1, temp, true, true);
+    }
+    int arry;
+    arry = i;
+    
+    
+    //end 
+    
+    int offset2 = Lexer::MeasureTokenLength(FuncEnd,
+                                           Rewrite.getSourceMgr(),
+                                           Rewrite.getLangOpts()) - 100;
+    SourceLocation FuncEnd1 = FuncEnd.getLocWithOffset(offset2);
+    int Func1gre = FuncEnd1.getRawEncoding();
+    int Funcgre = FuncEnd.getRawEncoding();
+    const char *endCharPtr3 = sr.getCharacterData(FuncEnd1);
+    char getReturn[100];
+    i = 0;
+    while (endCharPtr3[i]!='\0' && i<100){
+    	getReturn[i] = endCharPtr3[i];
+    	i++;
+    }
+    getReturn[i] = '\0';
+    pp = strstr(getReturn,"return");
+    j=&pp[0]-&getReturn[0];
+    int offset3 = Lexer::MeasureTokenLength(FuncEnd,
+                                           Rewrite.getSourceMgr(),
+                                           Rewrite.getLangOpts()) - 100 + j;
+    SourceLocation FuncEnd2 = FuncEnd.getLocWithOffset(offset3);
+
+    if (pp==NULL)  
+    Rewrite.InsertText(FuncEND1, checkleak, true, true);
+    /*if (pp!=NULL){
+
+        sprintf(temp,"\t333%d %d %d :%s %c%c%c\n",j,Func1gre,Funcgre,getReturn,endCharPtr3[0],endCharPtr3[1],endCharPtr3[4]);
+        Rewrite.InsertText(FuncEnd1,temp,true,true);
+    }*/
+	if (varstrategy==1){
+	    sprintf(temp,"\tif(strcmp(v%d%d,\"\\x12\\x34\\x56\\x78\\x13\\x24\\x79\")!=0) print2(\"v%d%d stack overflow\\n\");\n",arry,varsumarray[arry],arry,varsumarray[arry]);
+	    strcat(checkleak,temp);
+        //Rewrite.InsertText(FuncEnd2,temp,true,true);
+    }
+    else if (varstrategy==0 && varsumarray[arry]==1){
+    	/*sprintf(temp,"\tif(v%d0!=0x23) print2(\"v%d0 stack overflow\\n\");\n\tif(v%d1!=0x45) print2(\"v%d1 stack overflow\\n\");\n",arry,arry,arry,arry);*/
+    	sprintf(temp,"\tif(v%d1!=0x45) print2(\"v%d1 stack overflow\\n\");\n",arry,arry);
+    	strcat(checkleak,temp);
+        //Rewrite.InsertText(FuncEnd2,temp,true,true);
+    }
+    else{
+    	sprintf(temp,"\tif(v%d%d!=0x45) print2(\"v%d%d stack overflow\\n\");\n",arry,varsumarray[arry],arry,varsumarray[arry]);
+    	strcat(checkleak,temp);
+        //Rewrite.InsertText(FuncEnd2,temp,true,true);
+    }
+  
+}
+
+// GetFuncCallGraph - All Func Call 
+bool MyRecursiveASTVisitor::GetFuncCallGraph(Stmt *s){
+	char temp[100];
+    //sprintf(temp,"\tint stack%d = %d;\n",stack,fs);
+    SourceLocation ST = s->getBeginLoc();
+    SourceManager& sr = Rewrite.getSourceMgr();
+    int offset = Lexer::MeasureTokenLength(ST,
+                                           Rewrite.getSourceMgr(),
+                                           Rewrite.getLangOpts()) + 1;
+    int STgre = ST.getRawEncoding();
+    const char *endCharPtr2 = sr.getCharacterData(ST);
+    int stroffset = 0;
+    int i=0,j=0;
+
+    char getstrData[200];//all the line
+    char getvarName[100];//var name
+
+    while(endCharPtr2[stroffset]!=';'){
+    	getstrData[stroffset] = endCharPtr2[stroffset];
+    	stroffset++;
+    	if (stroffset>80) {
+    		llvm::errs() << "too long sentences"<<"\n";
+    		break;
+    	}
+    }
+    
+    char *strhave;
+    getstrData[stroffset]='\0';
+    strhave = strchr(getstrData,'(');
+    if (strhave!=NULL){
+    	strhave[0] = '\0';
+    }
+    llvm::errs() << "Found CallExpr:"<< getstrData<<"\n";
+    /*for (i=0;i<_dangerfuncsum;i++){
+    	if(dangerFunc[i][0]=='\0') break;
+    	if (strcmp(getstrData,dangerFunc[i])==0){
+    		func_call[func_now][func_now]=1;
+    		llvm::errs() << "vulnerable function"<< "\n";
+    		return true;
+    		break;
+    	}
+    }*/
+    if (out.is_open()) out<<" ,to "<<getstrData;  
+    else  llvm::errs() << "out.close"<< "\n";
+    		
+    for (i=0;i<_funcsum;i++){
+    	if(func_name[i][0]=='\0') break; 
+    	if (strcmp(getstrData,func_name[i])==0 && i != func_now){
+    		func_call[func_now][i]=1;
+    		llvm::errs() << "a function call: "<<func_name[func_now]<<" to "<<func_name[i]<< "\n";
+    		
+    		break;
+    	}
+    }
+    
+    if(i<_funcsum && func_name[i][0]=='\0') {
+    	strcpy(func_name[i],getstrData);
+    	if (i != func_now) func_call[func_now][i]=1;
+    	llvm::errs() << "a function call: "<<func_name[func_now]<<" to "<<func_name[i]<< "\n";
+    	i++;
+    }
+    else if (i>=_funcsum){
+    	llvm::errs() << "too much functions"<< "\n";
+    }
+}
+
+// Stmt Instrument
+void MyRecursiveASTVisitor::InstrumentStmt(Stmt *s, int flag)
+{
+  char temp[256]={0};
+  std::ifstream infile("loopconvert.txt");
+  infile>>pos;
+  pos++;
+  infile.close();
+  char char_pos[15]={0}; 
+  sprintf(char_pos,"%d",pos%100000);
+  SourceLocation STT = s->getBeginLoc();
+
+  llvm::errs()<<STT.getRawEncoding()<<"\n";
+  if(STT.getRawEncoding()==0)
+  {
+    llvm::errs()<<"LocStart == 0, ret\n";
+    return;
+  }
+
+  if(STT.isMacroID())
+  {
+  	llvm::errs() << "isMacroID exists, but what's this\n";
+  }
+
+  
+  // Only perform if statement is not compound
+  if (flag==2){
+    SourceLocation ST = s->getBeginLoc();
+    SourceLocation ENDD = s->getEndLoc();
+    SourceManager& sr = Rewrite.getSourceMgr();
+    int offset = Lexer::MeasureTokenLength(ST,
+                                           Rewrite.getSourceMgr(),
+                                           Rewrite.getLangOpts()) + 1;
+    int STgre = ST.getRawEncoding();
+    const char *endCharPtr2 = sr.getCharacterData(ST);
+    int stroffset = 0;
+    int i=0,j=0;
+   
+    char getstrData[100];//all the line
+    char getvarName[100];//var name
+
+    while(endCharPtr2[stroffset]!=':'){
+    	stroffset++;
+    	if (stroffset>80) {
+    		llvm::errs() << "too long switchcase;default"<<"\n";
+    		break;
+    	}
+    }
+    stroffset++;
+    SourceLocation ST1 = ST.getLocWithOffset(stroffset);
+    sprintf(temp,"\nblocks[%d] = '1';//%d %d!\n",pos%100000,ST,ENDD);
+    Rewrite.InsertText(ST1, temp, true, true);
+  }
+  else if(flag==1)
+  {
+    // sprintf(temp,"\n  int seq_out_byte = %s/8;\
+                \n  int seq_in_byte =1<<(%s%8);\
+                \n  blocks[seq_out_byte]=blocks[seq_out_byte]|seq_in_byte;\n",char_pos,char_pos);
+    
+    SourceLocation ST = s->getBeginLoc();
+    SourceLocation ENDD = s->getEndLoc();
+
+    sprintf(temp,"\nblocks[%d] = '1';//%d %d!\n",pos%100000,ST,ENDD);
+    llvm::errs() << "Found SwitchStmt!!! \n";
+    // Insert opening brace.  Note the second true parameter to InsertText()
+    // says to indent.  Sadly, it will indent to the line after the if, giving:
+    // if (expr)
+    //   {
+    //   stmt;
+    //   }
+    
+    Rewrite.InsertText(ST, temp, true, true); 
+  }
+  else if (!isa<CompoundStmt>(s))
+  {
+    // sprintf(temp,"{\n  int seq_out_byte = %s/8;\
+                \n  int seq_in_byte =1<<(%s%8);\
+                \n  blocks[seq_out_byte]=blocks[seq_out_byte]|seq_in_byte;\n",char_pos,char_pos);
+    SourceLocation ST = s->getBeginLoc();
+    SourceLocation ENDD = s->getEndLoc();
+    sprintf(temp,"{\nblocks[%d] = '1';//%d %d@\n",pos%100000,ST,ENDD);
+    llvm::errs() << "Found not CompoundStmt!!! \n";
+    
+
+    // Insert opening brace.  Note the second true parameter to InsertText()
+    // says to indent.  Sadly, it will indent to the line after the if, giving:
+    // if (expr)
+    //   {
+    //   stmt;
+    //   }
+    
+    Rewrite.InsertText(ST, temp, true, true);
+
+    // Note Stmt::getEndLoc() returns the source location prior to the
+    // token at the end of the line.  For instance, for:
+    // var = 123;
+    //      ^---- getEndLoc() points here.
+
+    SourceLocation END = s->getEndLoc();
+    SourceManager& sr = Rewrite.getSourceMgr();
+
+    // const char *endCharPtr = sr.getCharacterData(END);
+    // 	Lexer::MeasureTokenLength();
+    // MeasureTokenLength gets us past the last token, and adding 1 gets
+    // us past the ';'.
+    int offset = Lexer::MeasureTokenLength(END,
+                                           Rewrite.getSourceMgr(),
+                                           Rewrite.getLangOpts()) + 1;
+
+    SourceLocation END1 = END.getLocWithOffset(offset);
+    if(END1.getRawEncoding()-ST.getRawEncoding()>1000)
+    {
+	    const char *endCharPtr2 = sr.getCharacterData(ST);
+    	size_t offsentSemicolon = 0;
+    	while(endCharPtr2[offsentSemicolon++]!=';');
+		END1 = ST.getLocWithOffset(offsentSemicolon);
+	}
+
+    llvm::errs()<<"CompoundStmt LocEnd "<<END1.getRawEncoding()<<"\n";
+
+    Rewrite.InsertText(END1, "\n}", true, true);
+  }
+  else{
+    // sprintf(temp,"\n  int seq_out_byte = %s/8;\n  int seq_in_byte =1<<(%s%8);\n  blocks[seq_out_byte]=blocks[eq_out_byte]|seq_in_bye;\n",char_pos,char_pos);
+    SourceLocation ENDD = s->getEndLoc();
+    SourceLocation ST = ((CompoundStmt *)s)->getLBracLoc().getLocWithOffset(1);
+    sprintf(temp,"\nblocks[%d] = '1';//%d %d#\n",pos%100000,ST,ENDD);
+    llvm::errs() << "Found CompoundStmt \n";
+    
+    Rewrite.InsertText(ST, temp, true, true);
+    /*
+    SourceLocation END = s->getEndLoc();
+    int offset = Lexer::MeasureTokenLength(END,
+        z                                   Rewrite.getSourceMgr(),
+                                           Rewrite.getLangOpts()) + 1;
+
+    SourceLocation END1 = END.getLocWithOffset(offset);
+    Rewrite.InsertText(END1, "\n}", true, true);
+    */
+  }
+
+  // Also note getEndLoc() on a CompoundStmt points ahead of the '}'.
+  // Use getEndLoc().getLocWithOffset(1) to point past it.
+  //end of function ,blockpos write back
+  std::ofstream outfile("loopconvert.txt");
+  outfile<<pos;
+  outfile.close();
+}
+
+// Override Statements which includes expressions and more
+bool MyRecursiveASTVisitor::VisitStmt(Stmt *s){
+  int flag = 0;
+  llvm::errs() << "Stmt Name :: " << s->getStmtClassName()<<"\n";
+  stmtsum++;
+  //llvm::errs() << "0000\n";
+  if(isa<DeclStmt>(s))
+  {
+    stack++;  
+    llvm::errs() << "DeclStmt Found------------- \n";
+    AddrDisinfect(s);
+  }
+    
+  if (isa<IfStmt>(s))
+  {
+    llvm::errs() << "Found if\n";
+    if (isa<CallExpr>(s)) llvm::errs() << "Found if&call\n";
+    // Cast s to IfStmt to access the then and else clauses
+    IfStmt *If = cast<IfStmt>(s);
+    Stmt *TH = If->getThen();
+
+    // Add braces if needed to then clause
+    //InstrumentStmt(TH,flag);// if has else if ,broken
+    
+
+    Stmt *EL = If->getElse();
+    if (EL)
+    {
+      llvm::errs() << "Found else\n"; 
+      
+
+      if(!isa<IfStmt>(EL))
+      {
+        llvm::errs() << "found if in else\n";
+        InstrumentStmt(TH,flag);
+        InstrumentStmt(EL,flag);
+	    //VisitThinPath(TH,3);
+        //VisitThinPath(EL,4);
+      }
+      else
+      {
+          InstrumentStmt(TH,flag);
+          //VisitThinPath(TH,2);
+      }
+      // Add braces if needed to else clause
+    }
+    else{
+    	//VisitThinPath(TH,2);
+    	InstrumentStmt(TH,flag);
+    }
+  }
+  else
+  if (isa<WhileStmt>(s))
+  {
+    llvm::errs() << "Found while\n";
+    WhileStmt *While = cast<WhileStmt>(s);
+    Stmt *BODY = While->getBody();
+    InstrumentStmt(BODY,flag);
+    //VisitThinPath(BODY,5);
+  }
+  else
+  if (isa<ForStmt>(s))
+  {
+    llvm::errs() << "Found for\n";
+
+    ForStmt *For = cast<ForStmt>(s);
+    Stmt *BODY = For->getBody();
+    InstrumentStmt(BODY,flag);
+    //VisitThinPath(BODY,5);
+
+  }/*
+  else if(isa<SwitchCase>(s))
+  {
+      llvm::errs() << "Found Switch Case\n";
+  }*/
+  else if(isa<CaseStmt>(s))
+  {
+      llvm::errs() << "Found CaseStmt\n";
+      InstrumentStmt(s,2);
+  }
+  else if(isa<DefaultStmt>(s))
+  {
+      llvm::errs() << "Found DefaultStmt\n";
+      InstrumentStmt(s,2);
+
+  }/*
+  else if(isa<SwitchStmt>(s))
+  {
+    flag = 1;
+      llvm::errs() << "Found Switch\n";
+      SwitchStmt *Switch = cast<SwitchStmt>(s);
+      SwitchCase *sc = Switch->getSwitchCaseList();
+      while(sc)
+      {
+        Stmt *BODY = sc->getSubStmt();
+        SourceLocation STT = sc->getBeginLoc();
+
+        llvm::errs() <<"switch pos"<< STT.getRawEncoding() << "\n";
+
+        InstrumentStmt(BODY,flag);
+        //VisitThinPath(BODY,1);
+        sc = sc->getNextSwitchCase();
+      }
+  }*/
+  else if (isa<CallExpr>(s))
+  {
+  	llvm::errs() << "Found Call\n";
+  	GetFuncCallGraph(s);
+    
+
+  }
+  else if (isa<ReturnStmt>(s)){
+  	llvm::errs() << "Found Return\n";
+  	SourceLocation ST = s->getBeginLoc();
+    SourceManager& sr = Rewrite.getSourceMgr();
+    int offset = Lexer::MeasureTokenLength(ST,
+                                           Rewrite.getSourceMgr(),
+                                           Rewrite.getLangOpts()) + 1;
+    char ss[100]="";
+    sprintf(ss,"\n\tprint2(\"%s end,\");\n\t",func_name[func_now]);
+    Rewrite.InsertText(ST,checkleak,true,true);
+    Rewrite.InsertText(ST,ss,true,true);
+
+  }
+  //llvm::errs() << "Found Null\n";
+  return true; // returning false aborts the traversal
+}
+
+bool MyRecursiveASTVisitor::VisitFunctionDecl(FunctionDecl *f)
+{
+  if (f->hasBody())
+  {
+  	llvm::errs() << "Found function " << (f->getNameInfo()).getName().getAsString()<<"\n";
+  	llvm::errs() <<"stmtsum: "<<stmtsum<<'\n';
+  	if (out.is_open()) out<<" \nA Func "<<(f->getNameInfo()).getName().getAsString(); 
+  	if (func_blocks.is_open()) {
+  		if (pos>=0) func_blocks<<pos%100000<<"\n";
+  		func_blocks<<(f->getNameInfo()).getName().getAsString()<<" ";
+  	}
+    SourceRange sr = f->getSourceRange();
+    Stmt *s = f->getBody();
+    int i=0;
+    //String s;
+    char Funcname[_funcnamelen];
+    strcpy(checkleak,"");
+    for(i=0;i<sizeof((f->getNameInfo()).getName().getAsString());i++){
+    	Funcname[i] = (f->getNameInfo()).getName().getAsString()[i];
+    	if (i>=_funcnamelen-2) {
+    		llvm::errs() << "too long Funcname"<<"\n";
+    		break;
+    	}
+	}
+	Funcname[i]='\0';
+	strcpy(func_name[0],"NO_USE_FUNC_NAME");
+	for (i=0;i<_funcsum;i++){
+    	if(func_name[i][0]=='\0') break; 
+    	if (strcmp(func_name[i],Funcname)==0) break;
+    	
+	}
+
+	if (i>=_funcsum){
+    	llvm::errs() << "too much functions"<<"\n";
+    }
+    else{
+	    strcpy(func_name[i],Funcname);
+	    func_now = i;
+	    func_declare[func_declare_sum++]=func_now;
+    }
+    for (i=0;i<_funcsum;i++){
+    	if(func_name[i][0]=='\0') break; 
+    	llvm::errs() << func_name[i] <<func_call[i][0]
+    	<<func_call[i][1]<<func_call[i][2]<<func_call[i][3]<<func_call[i][4]<<func_call[i][5]<<"\n";
+    	
+	}
+
+
+    
+    
+    //llvm::errs() << "Exprloc"<<s->getExprLoc()<<"\n";
+    //FF
+    FuncEnd = sr.getEnd();
+
+    // Make a stab at determining return type
+    // Getting actual return type is trickier
+    QualType q = f->getReturnType();
+    const Type *typ = q.getTypePtr();
+
+    std::string ret;
+    if (typ->isVoidType())
+       ret = "void";
+    else
+    if (typ->isIntegerType())
+       ret = "integer";
+    else
+    if (typ->isCharType())
+       ret = "char";
+    else
+       ret = "Other";
+
+    
+
+    if (f->isMain()){
+      llvm::errs() << "Found main()\n";
+      if (out.is_open()) out<<" Main";   
+      func_main =func_now;
+      // Get name of function
+      DeclarationNameInfo dni = f->getNameInfo();
+      DeclarationName dn = dni.getName();
+      std::string fname = dn.getAsString();
+    }
+      // Point to start of function declaration
+      SourceLocation ST = sr.getBegin();
+      
+      /*
+      // Add 
+      char fc[256];
+      sprintf(fc, "#include <stdio.h>\n unsigned char blocks[64000]={0};\n");
+      Rewrite.InsertText(ST, fc, true, true);
+	  */
+      // Add 
+      SourceLocation INIT = s->getBeginLoc().getLocWithOffset(1);
+      char temp[256]={0};
+      sprintf(temp,"\n\tprint2(\"%s start,\");\n",Funcname);
+      Rewrite.InsertText(INIT, temp, true, true);
+
+      // Add 
+      SourceLocation END = s->getEndLoc();
+      FuncEND1 = END;
+      char temp2[1000]={0};
+      sprintf(temp2,"\n\tprint2(\"%s end,\");\n\t%s\n",Funcname,checkleak);
+      Rewrite.InsertText(END, temp2, true, true);
+       
+    
+  }
+
+  return true; // returning false aborts the traversal
+}
+
+
+
+
+
+// Unchanged from the cirewriter ----- begin
+
+class MyASTConsumer : public ASTConsumer
+{
+ public:
+
+  MyASTConsumer(Rewriter &Rewrite) : rv(Rewrite) { }
+  virtual bool HandleTopLevelDecl(DeclGroupRef d);
+
+  MyRecursiveASTVisitor rv;
+};
+
 bool MyASTConsumer::HandleTopLevelDecl(DeclGroupRef d)
 {
   typedef DeclGroupRef::iterator iter;
 
-  for (iter b = d.begin(), e = d.end(); b != e; ++b){
+  for (iter b = d.begin(), e = d.end(); b != e; ++b)
+  {
     rv.TraverseDecl(*b);
   }
+
   return true; // keep going
 }
 
-//---跟以前的一样
-
-
-//一些附加信息
-static llvm::cl::OptionCategory MyToolCategory("my-tool options");
-// CommonOptionsParser declares HelpMessage with a description of the common
-// command-line options related to the compilation database and input files.
-// It's nice to have this help message in all tools.
-static cl::extrahelp CommonHelp(CommonOptionsParser::HelpMessage);
-// A help message for this specific tool can be added afterwarDRE.
-static cl::extrahelp MoreHelp("\nMore help text...");
+// Unchanged from the cirewriter ----- end
 
 
 
-//匹配到malloc()里的变量
-StatementMatcher MallocVarMatcher = declRefExpr(hasParent(binaryOperator(
-               hasOperatorName("="),
-                hasRHS(cStyleCastExpr(has(callExpr(has(declRefExpr(to(functionDecl(hasName("malloc")))))))))))).bind("mallocVar");
-
-//匹配到malloc()那个二元表达式
-StatementMatcher MallocMatcher = binaryOperator(
-               hasOperatorName("="),
-               //hasLHS(anything()),
-                hasRHS(cStyleCastExpr(has(callExpr(has(declRefExpr(to(functionDecl(hasName("malloc")))))))))).bind("malloc");
-
-//匹配到free()的表达式                                                
-StatementMatcher FreeMatcher = callExpr(has(declRefExpr(to(functionDecl(hasName("free")))))).bind("free");
-//匹配到free()里的变量
-StatementMatcher FreeVarMatcher = declRefExpr(hasParent(implicitCastExpr(hasParent(implicitCastExpr(hasParent(callExpr(has(declRefExpr(to(functionDecl(hasName("free")))))))))))).bind("freeVar");                
 
 
 
-class MallocPrinter : public MatchFinder::MatchCallback{
-public:
-    virtual void run(const MatchFinder::MatchResult &Result){
-        const BinaryOperator* BO = Result.Nodes.getNodeAs<BinaryOperator>("malloc");
-        #ifdef DEBUG
-        llvm::errs()<<"----BinaryOperator(malloc) find----\n";
-        #endif
-        if(!BO)   return ;
-        const SourceManager *SM = Result.SourceManager;
-        SourceLocation locEnd = BO->getEndLoc();
-        checkPoint cp;
-      
-	
-		//得到插装位置,找到mallocVarMatcher之前对应匹配到的信息(其实可以不用MallocVarMatcher,MallocVarMatcher只能匹配到纯粹的指针(不带*的))
-        std::string str_locEnd = locEnd.printToString(*SM);
-        loc_strToint(cp.row,cp.col,str_locEnd.c_str());
-        bool findFlag = false;
-        int findI;
-        
-        #ifdef DEBUG
-        llvm::errs() <<"binary loc:" <<"|"<<cp.row<<"|"<<cp.col<<"\n";
-        #endif
-        
-        for(unsigned i=0;i<cpVec.size();++i){
-            if(cpVec[i].row == cp.row){
-                    findFlag = true;
-                    findI = i;
-                    break;
-                }
-        }
-		//左子树得到的 = 的左边
-        Expr * lhs = BO->getLHS();
-        cp.name = rewrite.ConvertToString((Stmt*)lhs);
-        
-        QualType qt = lhs->getType();
-        #ifdef DEBUG
-        llvm::errs()<<"lhs cp.name :"<<cp.name<<"\n";
-        llvm::errs()<<"lhs type :"<<qt.getAsString()<<"\n";
-        lhs->dump();
-        #endif
-        
-		//找到的话直接用
-        if(findFlag){        
-            const NamedDecl *ND = ((DeclRefExpr*)lhs)->getFoundDecl();
-            std::string str_decl = ND->getNameAsString();
-            cp.declName = str_decl;
-            SourceLocation declLocStart = ND->getBeginLoc();
-            std::string str_declLocStart = declLocStart.printToString(*SM);
-            loc_strToint(cp.declRow,cp.declCol,str_declLocStart.c_str());
-        
-        }else{//没找到的话,添加进来
-            cp.declName = cp.name;
-            cp.declRow = cp.row;
-            cp.declCol = cp.col;
-        }
-        
-		//string + 不支持int类型,所以先换成char*
-        char buf[4][32];
-        sprintf(buf[0],"%d",cp.row);
-        sprintf(buf[1],"%d",cp.col);
-        sprintf(buf[2],"%d",cp.declRow);
-        sprintf(buf[3],"%d",cp.declCol);  
-                                     
-        //将程序运行时的指针值存下来 %x                                     
-        std::string str_insert = 
-        "\n{\n\tFILE *fp = fopen(\"" + checkDataFileName +"\",\"a\");\n"
-        "\tif(fp == NULL){\n" +
-        "\t\tprintf(\"fail to open file " + checkDataFileName + "!\\n\");\n" +
-        "\t\texit(-1);\n" + 
-        "\t}\n" + 
-        
-        //"\tfprintf(fp,\"m " + cp.name + " " + buf[0] + " " + buf[1] + " " + cp.declName + " " + buf[2] + " " + buf[3] + " %x \\n\"," + cp.name + ");\n" +
-        "\tfprintf(fp,\"m " + cp.name + " " + buf[0] + " " + buf[1] + " %x \\n\"," + cp.name + ");\n" +
-        "\tfclose(fp);\n\n" +
-        "\tint fd=open(FIFO_SERVER,O_WRONLY |O_NONBLOCK,0);\n" + 
-        "\tif(fd==-1){perror(\"open\");exit(1);}\n" + 
-        "\tchar w_buf[100];\n" + 
-        "\tsprintf(w_buf,\"m "+ cp.name + " " + buf[0] + " " + buf[1] + " %x \\n\"," + cp.name + ");\n" + 
-        "\tif(write(fd,w_buf,100)==-1){\n" + 
-        "\t\tif(errno==EAGAIN)\n" + 
-        "\t\t\tprintf(\"The FIFO has not been read yet.Please try later\\n\");\n" + 
-        "\t}\n" + 
-        "\telse\n" + 
-        "\t\tprintf(\"write %s to the FIFO\\n\",w_buf);\n" +
-        "\tsleep(1);\n" + 
-        "\tclose(fd);\n" + 
-        "}\n";
-        
-        
-        
-        //llvm::errs() << "-----\n"<<str_insert<<"\n----\n";
-		//找位置插装
-        int locOffset = 2;
-        SourceLocation SL_locWithOffset = locEnd.getLocWithOffset(locOffset);
-        rewrite.InsertText(SL_locWithOffset,str_insert.c_str(),true,true); 
-        
-		if(!findFlag){        
-            cpVec.push_back(cp);
-        }
 
-        #ifdef DEBUG
-        llvm::errs()<<"----BinaryOperator(malloc) end----\n";
-        #endif
+
+
+int main(int argc, char **argv)
+{
+  struct stat sb;
+
+  if (argc < 2)
+  {
+     llvm::errs() << "Here is the Usage: CIrewriter <options> <filename>\n";
+     return 1;
+  }
+
+  fs = rand();
+  // Get filename
+  std::string fileName(argv[argc - 1]);
+
+  // Make sure it exists
+  if (stat(fileName.c_str(), &sb) == -1)
+  {
+    perror(fileName.c_str());
+    exit(EXIT_FAILURE);
+  }
+
+  CompilerInstance compiler;
+  DiagnosticOptions diagnosticOptions;
+  compiler.createDiagnostics();
+  //compiler.createDiagnostics(argc, argv);
+
+  // Create an invocation that passes any flags to preprocessor
+  auto Invocation = std::make_shared<CompilerInvocation>();
+  Invocation->getFrontendOpts().Inputs.push_back(FrontendInputFile("test.cpp",
+                                                                   clang::InputKind::CXX));
+  Invocation->getFrontendOpts().ProgramAction = frontend::ParseSyntaxOnly;
+  compiler.setInvocation(std::move(Invocation));
+
+  // Set default target triple
+    std::shared_ptr<clang::TargetOptions> pto = std::make_shared<clang::TargetOptions>();
+  pto->Triple = llvm::sys::getDefaultTargetTriple();
+    TargetInfo *pti = TargetInfo::CreateTargetInfo(compiler.getDiagnostics(), pto);
+  compiler.setTarget(pti);
+
+  compiler.createFileManager();
+  compiler.createSourceManager(compiler.getFileManager());
+
+  HeaderSearchOptions &headerSearchOptions = compiler.getHeaderSearchOpts();
+
+  // Allow C++ code to get rewritten
+  LangOptions langOpts;
+  langOpts.GNUMode = 1; 
+  langOpts.CXXExceptions = 1; 
+  langOpts.RTTI = 1; 
+  langOpts.Bool = 1; 
+  langOpts.CPlusPlus = 1; 
+  /*
+  Invocation->setLangDefaults(langOpts,
+                              clang::IK_CXX,
+                              clang::LangStandard::lang_cxx0x);
+  */
+  compiler.createPreprocessor(clang::TU_Prefix);
+  //---------------compiler.getPreprocessorOpts().UsePredefines = false;
+ 
+  compiler.createASTContext();
+
+  // Initialize rewriter
+  Rewriter Rewrite;
+  Rewrite.setSourceMgr(compiler.getSourceManager(), compiler.getLangOpts());
+
+  const FileEntry *pFile = compiler.getFileManager().getFile(fileName);
+    compiler.getSourceManager().setMainFileID( compiler.getSourceManager().createFileID( pFile, clang::SourceLocation(), clang::SrcMgr::C_User));
+  compiler.getDiagnosticClient().BeginSourceFile(compiler.getLangOpts(),
+                                                &compiler.getPreprocessor());
+
+  MyASTConsumer astConsumer(Rewrite);
+
+  // Convert <file>.c to <file_out>.c
+  std::string outName (fileName);
+  size_t ext = outName.rfind(".");
+  if (ext == std::string::npos)
+     ext = outName.length();
+  outName.insert(ext, "_out");
+
+
+  llvm::errs() << "Output to: " << outName << "\n";
+  std::error_code OutErrorInfo;
+  std::error_code ok;
+  llvm::raw_fd_ostream outFile(llvm::StringRef(outName), OutErrorInfo, llvm::sys::fs::F_None);
+
+
+
+
+
+  //TODO
+
+  if (OutErrorInfo == ok)
+  {
+    // Parse the AST
+    ParseAST(compiler.getPreprocessor(), &astConsumer, compiler.getASTContext());
+    compiler.getDiagnosticClient().EndSourceFile();
+
+    // Output some #ifdefs
+    outFile << "#define L_AND(a, b) a && b\n";
+    outFile << "#define L_OR(a, b) a || b\n";
+    outFile << "#ifndef STDIO_H\n";
+    outFile << "#define STDIO_H\n";
+    outFile << "#endif\n";
+
+    char fc[256];
+    std::ifstream infile("/root/loopconvert.txt");
+    infile>>blockflag;
+    infile.close();
+    if (blockflag>=100000){
+    	outFile << "\nextern unsigned char blocks[1000];\n";
+    	infile.close();
     }
-    
-    
-};
-
-
-class FreePrinter : public MatchFinder::MatchCallback{//free插装在前面
-public:
-    virtual void run(const MatchFinder::MatchResult &Result){//free
-        const CallExpr* CE = Result.Nodes.getNodeAs<CallExpr>("free");
-        #ifdef DEBUG
-        llvm::errs()<<"----CallExpr(free) find----\n";
-        #endif
-        if(!CE)   return ;
-        
-
-        //得到free()里的第0个参数,进行类似的操作
-		const SourceManager *SM = Result.SourceManager;
-        const Expr * arg = CE->getArg(0);        
-        checkPoint cp;
-        cp.name = rewrite.ConvertToString((Stmt*)arg);
-        
-        SourceLocation locStart = CE->getBeginLoc();
-        std::string str_locStart = locStart.printToString(*SM);
-        loc_strToint(cp.row,cp.col,str_locStart.c_str());
-        
-        #ifdef DEBUG
-        llvm::errs()<<"cp:"<<cp.row<<" "<<cp.col<<" " + str_locStart + "\n";
-        #endif
-        
-        bool findFlag = false;
-        for(unsigned i=0;i<cpVecF.size();++i){
-            if(cp.name == cpVecF[i].name &&
-             cp.row == cpVecF[i].row){
-                findFlag = true;
-                cp.col = cpVecF[i].col;
-                cp.declName = cpVecF[i].declName;
-                cp.declRow = cpVecF[i].declRow;
-                cp.declCol = cpVecF[i].declCol;
-                break;
-            }
-        }
-        if(!findFlag){
-            cp.declName = cp.name;
-            cp.declRow = cp.row;
-            cp.declCol = cp.col;
-        }
-                
-        char buf[4][32];
-        sprintf(buf[0],"%d",cp.row);
-        sprintf(buf[1],"%d",cp.col);
-        sprintf(buf[2],"%d",cp.declRow);
-        sprintf(buf[3],"%d",cp.declCol);                        
-		//之后可以进行开文件的优化
-        std::string str_insert = 
-        "\n{\n\tFILE *fp = fopen(\"" + checkDataFileName +"\",\"a\");\n"
-        "\tif(fp == NULL){\n" +
-        "\t\tprintf(\"fail to open file " + checkDataFileName + "!\\n\");\n" +
-        "\t\texit(-1);\n" + 
-        "\t}\n"  + 
-        //"\tfprintf(fp,\"f " + cp.name + " " + buf[0] + " " + buf[1] + " " + cp.declName + " " + buf[2] + " " + buf[3] + " %x \\n\"," + cp.name + ");\n" +
-        "\tfprintf(fp,\"f " + cp.name + " " + buf[0] + " " + buf[1] + " %x \\n\"," + cp.name + ");\n" +
-        "\tfclose(fp);\n" +
-        "\tint fd=open(FIFO_SERVER,O_WRONLY |O_NONBLOCK,0);\n" + 
-        "\tif(fd==-1){perror(\"open\");exit(1);}\n" + 
-        "\tchar w_buf[100];\n" + 
-        "\tsprintf(w_buf,\"f "+ cp.name + " " + buf[0] + " " + buf[1] + " %x \\n\"," + cp.name + ");\n" + 
-        "\tif(write(fd,w_buf,100)==-1){\n" + 
-        "\t\tif(errno==EAGAIN)\n" + 
-        "\t\t\tprintf(\"The FIFO has not been read yet.Please try later\\n\");\n" + 
-        "\t}\n" + 
-        "\telse\n" + 
-        "\t\tprintf(\"write %s to the FIFO\\n\",w_buf);\n" +
-        "\tsleep(1);\n" + 
-        "\tclose(fd);\n" + 
-        "}\n";
-        
-
-       // llvm::errs() << "-----\n"<<str_insert<<"\n----\n";
-        SourceLocation SL_locWithOffset = locStart;
-        rewrite.InsertText(SL_locWithOffset,str_insert.c_str(),true,true);   
-        #ifdef DEBUG
-        llvm::errs()<<"----CallExpr(free) end----\n";
-        #endif
-
+    else {
+    	outFile << "\nunsigned char blocks[1000]={0};\n";
+    	blockflag+=100000;
+    	std::ofstream outfile("/root/loopconvert.txt");
+        outfile<<blockflag;
+        outfile.close();
     }
-};
+	  
 
-class FreeVarPrinter : public MatchFinder::MatchCallback{//freeVar 插装在前面
-public:
-    virtual void run(const MatchFinder::MatchResult &Result){//freeVar
-        const DeclRefExpr* DRE = Result.Nodes.getNodeAs<DeclRefExpr>("freeVar");
-        #ifdef DEBUG
-        llvm::errs()<<"----DRE(freeVar) find----\n";
-        #endif
-        
-        if(!DRE)   return ;
+    // Now output rewritten source code
+    const RewriteBuffer *RewriteBuf =
+      Rewrite.getRewriteBufferFor(compiler.getSourceManager().getMainFileID());
+    outFile << std::string(RewriteBuf->begin(), RewriteBuf->end());
+  }
+  else
+  {
+    llvm::errs() << "Cannot open " << outName << " for writing\n";
+  }
 
-        const SourceManager *SM = Result.SourceManager;
-        
-        const NamedDecl *ND = DRE->getFoundDecl();
-        checkPoint cp;
-        cp.name = rewrite.ConvertToString((Stmt*)DRE);
-        std::string str_decl = ND->getNameAsString();
-        cp.declName = str_decl;
-       
-        SourceLocation declLocStart = ND->getBeginLoc();
-        std::string str_declLocStart = declLocStart.printToString(*SM);
-        loc_strToint(cp.declRow,cp.declCol,str_declLocStart.c_str());
+  outFile.close();
 
-        SourceLocation locStart = DRE->getBeginLoc();
-        std::string str_locStart = locStart.printToString(*SM);
-        loc_strToint(cp.row,cp.col,str_locStart.c_str());
-
-
-        
-        cpVecF.push_back(cp);
-    #ifdef DEBUG
-    llvm::errs()<<"----DRE(freeVar) end----\n";
-    #endif
-    }
-};
-class MallocVarPrinter : public MatchFinder::MatchCallback{
-public:
-    virtual void run(const MatchFinder::MatchResult &Result){
-        const DeclRefExpr* DRE = Result.Nodes.getNodeAs<DeclRefExpr>("mallocVar");
-        #ifdef DEBUG
-        llvm::errs()<<"----DRE(mallocVar) find----\n";
-        #endif
-
-        if(!DRE)   return ;
-
-        const SourceManager *SM = Result.SourceManager;
-        SourceLocation locStart = DRE->getBeginLoc();
-        
-        std::string str_locStart = locStart.printToString(*SM);
-        
-        checkPoint cp;
-        loc_strToint(cp.row,cp.col,str_locStart.c_str());
-
-
-        cp.name = rewrite.ConvertToString((Stmt*)DRE);
-
-        //找到该变量原先的声明处 
-        const NamedDecl *ND = DRE->getFoundDecl();
-        std::string str_decl = ND->getNameAsString();
-        cp.declName = ND->getNameAsString();
-        
-        SourceLocation declLocStart = ND->getBeginLoc();
-        std::string str_declLocStart = declLocStart.printToString(*SM);
-        loc_strToint(cp.declRow,cp.declCol,str_declLocStart.c_str());
-        
-        #ifdef DEBUG
-        llvm::errs()<<"\ncp: "
-        <<cp.row<<":"<<cp.col<<":"<<cp.declRow<<":"<<cp.declCol<<"\n";
-        #endif
-
-        
-        cpVec.push_back(cp);
-        
-        #ifdef DEBUG
-        llvm::errs() << cp.name << "|\n" <<  cp.declName <<"|\n"
-        << cp.declRow << ":" << cp.declCol << "\n";
-        llvm::errs() << "ND:\n";
-        ND->dump();
-        llvm::errs() << "DRE:\n";
-        DRE->dump();
-
-        llvm::errs()<<"----DRE(mallocVar) end----\n";
-        #endif
-
-    }
-};
-
-//使用的格式:  ./checkMemory 被测试文件名 --
-int main(int argc,const char **argv) {
-
-	//----此块基本一样    start----
-    struct stat sb;             
-
-    //set compilerinstance for rewriter		
-	std::string fileName(argv[1]);
-	if (stat(fileName.c_str(), &sb) == -1){
-        perror(fileName.c_str());
-        exit(EXIT_FAILURE);
-    }
-
-	
-	CompilerInstance compiler;
-	DiagnosticOptions diagnosticOptions;
-	compiler.createDiagnostics();
-
-
-	//invocation可以传递任何flag给preprocessor
-	CompilerInvocation *Invocation = new CompilerInvocation;
-
-	CompilerInvocation::CreateFromArgs(*Invocation, argv + 1, argv + argc-1,compiler.getDiagnostics());
-
-	compiler.setInvocation(Invocation);
-
-
-	//建立TargetOptions和TargetInfo,并设置好Target
-	// Set default target triple
-	llvm::IntrusiveRefCntPtr<TargetOptions> pto( new TargetOptions());
-	pto->Triple = llvm::sys::getDefaultTargetTriple();
-	llvm::IntrusiveRefCntPtr<TargetInfo>
-	 pti(TargetInfo::CreateTargetInfo(compiler.getDiagnostics(),
-		                              pto.getPtr()));
-	compiler.setTarget(pti.getPtr());
-
-	//FileManager,SourceManager 以及heaDREearch的Options的设置
-	compiler.createFileManager();
-	compiler.createSourceManager(compiler.getFileManager());
-
-
-	//langOptions设置，要传给rewriter
-   	LangOptions langOpts;
-	langOpts.GNUMode = 1; 
-	langOpts.CXXExceptions = 1; 
-	langOpts.RTTI = 1; 
-	langOpts.Bool = 1; 
-	langOpts.CPlusPlus = 1; 
-	Invocation->setLangDefaults(langOpts, clang::IK_CXX,clang::LangStandard::lang_cxx0x);
-
-	//create PP
-	compiler.createPreprocessor();//(TU_Complete);//
-	compiler.getPreprocessorOpts().UsePredefines = false;
-	//createASTContext
-	compiler.createASTContext();
-  
- 	//set the sourceManager for rewriter 
-
-	
-	rewrite.setSourceMgr(compiler.getSourceManager(), compiler.getLangOpts());
-	
-	//插装文件入口
-
-	const FileEntry *pFile = compiler.getFileManager().getFile(fileName);
-	compiler.getSourceManager().createMainFileID(pFile);
-	compiler.getDiagnosticClient().BeginSourceFile(compiler.getLangOpts(),&compiler.getPreprocessor());
-	                                        
-	
-	MyASTConsumer astConsumer(rewrite);
-	//将.c转成_out.c
-	// Convert <file>.c to <file_out>.c
-	std::string outName (fileName);
-	/*size_t ext = outName.rfind(".");
-	//根据有没有找到‘。’来决定在哪里加入_out
-	if (ext == std::string::npos)
-		ext = outName.length();
-	outName.insert(ext, "_out");
-	*/
-	outName.insert(outName.length(),"_out");
-	llvm::errs() << "Output to: " << outName << "\n";
-	
-	std::string OutErrorInfo;
-	//新建输入到新文件的流
-	llvm::raw_fd_ostream outFile(outName.c_str(), OutErrorInfo);//,llvm::sys::fs::F_None);//版本问题//////
-
-
-	//----此块基本一样    end----
-
-	if (OutErrorInfo.empty()){
-		// Parse the AST
-		//用PP，astConsumer，ASTContext来解释AST
-		ParseAST(compiler.getPreprocessor(), &astConsumer, compiler.getASTContext());
-		compiler.getDiagnosticClient().EndSourceFile();
-    
-		//建立ClangTool 
-        CommonOptionsParser OptionsParser(argc, argv);//, MyToolCategory);
-        ClangTool Tool(OptionsParser.getCompilations(),
-                 OptionsParser.getSourcePathList());
-		//开始匹配             
-        
-        MallocVarPrinter mallocVarPrinter;
-        MatchFinder mallocVarFinder;
-        mallocVarFinder.addMatcher(MallocVarMatcher, &mallocVarPrinter);
-        Tool.run(newFrontendActionFactory(&mallocVarFinder));
-        
-        MallocPrinter mallocPrinter;
-        MatchFinder mallocFinder;
-        mallocFinder.addMatcher(MallocMatcher, &mallocPrinter);
-        Tool.run(newFrontendActionFactory(&mallocFinder));
-        
-        FreeVarPrinter freeVarPrinter;
-        MatchFinder freeVarFinder;
-        freeVarFinder.addMatcher(FreeVarMatcher, &freeVarPrinter);
-        Tool.run(newFrontendActionFactory(&freeVarFinder));
-        
-        FreePrinter freePrinter;
-        MatchFinder freeFinder;
-        freeFinder.addMatcher(FreeMatcher, &freePrinter);
-        Tool.run(newFrontendActionFactory(&freeFinder));
-   
-    
-                  
-    	const RewriteBuffer *RewriteBuf =rewrite.getRewriteBufferFor(compiler.getSourceManager().getMainFileID());
-		
-        if(RewriteBuf != NULL){
-            #ifdef DEBUG
-            llvm::errs() << " RewriteBuf not NULL \n";
-			//在文件头加上改头文件,防止没有 stdlib,stdio 而不能使用printf和exit函数
-		    #endif
-			outFile << "#include\"plugHead.h\"\n";
-            
-            outFile << std::string(RewriteBuf->begin(), RewriteBuf->end());		
-        }else{
-            #ifdef DEBUG
-            llvm::errs() << " RewriteBuf is NULL \n";
-			#endif
-
-        	outFile << "#include\"plugHead.h\"\n";
-            std::ifstream infile(fileName.c_str());
-            if(!infile){
-                llvm::errs() << " fail to open the input file!\n";
-                exit(-1);                
-            }
-            std::string str_in;
-            while(std::getline(infile,str_in)){
-                outFile << str_in <<"\n";
-            }
-        
-        }
-        outFile.close();
-
-
-        #ifdef DEBUG        
-        std::string checkStructErrorInfo;
-        std::string checkStructFileName = "checkStruct.txt";
-        //新建输入到新文件的流,将已经找到的malloc过的结构体信息写入文件,供另一个处理程序读取
-        llvm::raw_fd_ostream csFile(checkStructFileName.c_str(),checkStructErrorInfo);//,llvm::sys::fs::F_None);
-        if (checkStructErrorInfo.empty()){
-      	    for(unsigned int i=0;i<cpVec.size();++i){            
-    	        csFile << cpVec[i].name << " " << cpVec[i].row << " " << cpVec[i].col << " " << cpVec[i].declName << " " << cpVec[i].declRow << " " << cpVec[i].declCol << "\n" ;
-	        }            
-        }
-	    csFile.close();  
-        for(unsigned int i=0;i<cpVec.size();++i){
-	        llvm::errs()<<cpVec[i].name<<"|"<<cpVec[i].declName<<":"<<cpVec[i].declRow<<":"<<cpVec[i].declCol<<"\n";  
-	    }	
-        #endif
-	    
-	}
-	else{
-		llvm::errs() << "Cannot open " << outName << " for writing\n";
-	}
-	
-
-      
-    return 0;
+  //GetThinPath(0x1,715);
+  //ResetFuncName();
+  //CreateDangerFuncPathByDeep(func_main);
+  //ShowDangerFuncPath();
+  if (out.is_open()) out<< " \n";
+  out.close();
+  func_blocks<<pos%100000<<"\n";
+  func_blocks.close();
+  return 0;
 }
+

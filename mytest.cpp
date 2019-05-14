@@ -43,3 +43,5 @@ public:
     Rewriter &Rewrite;
 }
 
+StatementMatcher MallocVarMatcher = declRefExpr(hasParent(binaryOperator(hasOperatorName("="), hasRHS(cStyleCastExpr(has(callExpr(has(declRefExpr(to(functionDecl(hasName("malloc")))))))))))).bind("mallocVar");
+
