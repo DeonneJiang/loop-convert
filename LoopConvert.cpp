@@ -63,12 +63,15 @@
 using namespace clang;
 
 
-
-
 #define _funcsum 70
 #define _funcnamelen 50
 #define _dangerfuncsum 20
 #define _vartypesum 20
+
+
+
+
+
 
 int           stmtsum=0;
 std::ofstream out("/root/result.txt",std::ios::app);	
@@ -96,6 +99,20 @@ int             danger_func_path[2*_funcsum][_funcsum]={0};
 int             func_buf[_funcsum]={0};
 
 
+typedef struct checkPoint{
+    //std::string flagName;
+    std::string name;//插入点的变量
+    int row,col;//行号,列号
+    std::string declName;//原先定义的位置,先保留不用
+    int declRow,declCol;   
+}checkPoint;
+std::vector<checkPoint> cpVec;//存malloc时得到的点
+std::vector<checkPoint> cpVecF;//存free时得到的点,临时使用
+
+Rewriter       &rewrite;
+
+
+
 class MyRecursiveASTVisitor
     : public RecursiveASTVisitor<MyRecursiveASTVisitor>
 {
@@ -118,7 +135,6 @@ class MyRecursiveASTVisitor
 
   Rewriter &Rewrite;
 };
-
 
 bool MyRecursiveASTVisitor::VisitVarDecl(VarDecl* v){
   llvm::errs()<< "we find a var decl!!!!!\n";
@@ -206,7 +222,6 @@ Expr *MyRecursiveASTVisitor::VisitBinaryOperator(BinaryOperator *E){
 
   return E;
 }
-
 
 // AddrDisinfect - add after var
 void MyRecursiveASTVisitor::AddrDisinfect(Stmt *s){
@@ -814,6 +829,8 @@ bool MyRecursiveASTVisitor::VisitFunctionDecl(FunctionDecl *f)
 
 
 
+
+
 // Unchanged from the cirewriter ----- begin
 
 class MyASTConsumer : public ASTConsumer
@@ -839,6 +856,11 @@ bool MyASTConsumer::HandleTopLevelDecl(DeclGroupRef d)
 }
 
 // Unchanged from the cirewriter ----- end
+
+
+
+
+
 
 // malloc place
 ast_matchers::StatementMatcher FreeVarMatcher   =   ast_matchers::declRefExpr(
@@ -922,11 +944,121 @@ ast_matchers::StatementMatcher MallocMatcher    =   ast_matchers::binaryOperator
 //
 
 
+class MallocPrinter : public ast_matchers::MatchFinder::MatchCallback{
+public:
+    virtual void run(const ast_matchers::MatchFinder::MatchResult &Result){
+        const BinaryOperator* BO = Result.Nodes.getNodeAs<BinaryOperator>("malloc");
+        #ifdef DEBUG
+        llvm::errs()<<"----BinaryOperator(malloc) find----\n";
+        #endif
+        if(!BO)   return ;
+        const SourceManager *SM = Result.SourceManager;
+        SourceLocation locEnd = BO->getEndLoc();
+        checkPoint cp;
+      
+	
+		//得到插装位置,找到mallocVarMatcher之前对应匹配到的信息(其实可以不用MallocVarMatcher,MallocVarMatcher只能匹配到纯粹的指针(不带*的))
+        std::string str_locEnd = locEnd.printToString(*SM);
+        loc_strToint(cp.row,cp.col,str_locEnd.c_str());
+        bool findFlag = false;
+        int findI;
+        
+        #ifdef DEBUG
+        llvm::errs() <<"binary loc:" <<"|"<<cp.row<<"|"<<cp.col<<"\n";
+        #endif
+        
+        for(unsigned i=0;i<cpVec.size();++i){
+            if(cpVec[i].row == cp.row){
+                    findFlag = true;
+                    findI = i;
+                    break;
+                }
+        }
+		//左子树得到的 = 的左边
+        Expr * lhs = BO->getLHS();
+        cp.name = rewrite.ConvertToString((Stmt*)lhs);
+        
+        QualType qt = lhs->getType();
+        #ifdef DEBUG
+        llvm::errs()<<"lhs cp.name :"<<cp.name<<"\n";
+        llvm::errs()<<"lhs type :"<<qt.getAsString()<<"\n";
+        lhs->dump();
+        #endif
+        
+		//找到的话直接用
+        if(findFlag){        
+            const NamedDecl *ND = ((DeclRefExpr*)lhs)->getFoundDecl();
+            std::string str_decl = ND->getNameAsString();
+            cp.declName = str_decl;
+            SourceLocation declLocStart = ND->getBeginLoc();
+            std::string str_declLocStart = declLocStart.printToString(*SM);
+            loc_strToint(cp.declRow,cp.declCol,str_declLocStart.c_str());
+        
+        }else{//没找到的话,添加进来
+            cp.declName = cp.name;
+            cp.declRow = cp.row;
+            cp.declCol = cp.col;
+        }
+        
+		//string + 不支持int类型,所以先换成char*
+        char buf[4][32];
+        sprintf(buf[0],"%d",cp.row);
+        sprintf(buf[1],"%d",cp.col);
+        sprintf(buf[2],"%d",cp.declRow);
+        sprintf(buf[3],"%d",cp.declCol);  
+                                     
+        //将程序运行时的指针值存下来 %x                                     
+        std::string str_insert = 
+        "\n{\n\tFILE *fp = fopen(\"" + checkDataFileName +"\",\"a\");\n"
+        "\tif(fp == NULL){\n" +
+        "\t\tprintf(\"fail to open file " + checkDataFileName + "!\\n\");\n" +
+        "\t\texit(-1);\n" + 
+        "\t}\n" + 
+        
+        //"\tfprintf(fp,\"m " + cp.name + " " + buf[0] + " " + buf[1] + " " + cp.declName + " " + buf[2] + " " + buf[3] + " %x \\n\"," + cp.name + ");\n" +
+        "\tfprintf(fp,\"m " + cp.name + " " + buf[0] + " " + buf[1] + " %x \\n\"," + cp.name + ");\n" +
+        "\tfclose(fp);\n\n" +
+        "\tint fd=open(FIFO_SERVER,O_WRONLY |O_NONBLOCK,0);\n" + 
+        "\tif(fd==-1){perror(\"open\");exit(1);}\n" + 
+        "\tchar w_buf[100];\n" + 
+        "\tsprintf(w_buf,\"m "+ cp.name + " " + buf[0] + " " + buf[1] + " %x \\n\"," + cp.name + ");\n" + 
+        "\tif(write(fd,w_buf,100)==-1){\n" + 
+        "\t\tif(errno==EAGAIN)\n" + 
+        "\t\t\tprintf(\"The FIFO has not been read yet.Please try later\\n\");\n" + 
+        "\t}\n" + 
+        "\telse\n" + 
+        "\t\tprintf(\"write %s to the FIFO\\n\",w_buf);\n" +
+        "\tsleep(1);\n" + 
+        "\tclose(fd);\n" + 
+        "}\n";
+        
+        
+        
+        //llvm::errs() << "-----\n"<<str_insert<<"\n----\n";
+		    //找位置插装
+        int locOffset = 2;
+        SourceLocation SL_locWithOffset = locEnd.getLocWithOffset(locOffset);
+        rewrite.InsertText(SL_locWithOffset,str_insert.c_str(),true,true); 
+        
+		    if(!findFlag){        
+            cpVec.push_back(cp);
+        }
+
+        #ifdef DEBUG
+        llvm::errs()<<"----BinaryOperator(malloc) end----\n";
+        #endif
+    }  
+};
+
 
 
 //
 int main(int argc, char **argv)
 {
+
+
+
+
   struct stat sb;
 
   if (argc < 2)
@@ -996,6 +1128,7 @@ int main(int argc, char **argv)
                                                 &compiler.getPreprocessor());
 
   MyASTConsumer astConsumer(Rewrite);
+  rewrite = Rewrite;
 
   // Convert <file>.c to <file_out>.c
   std::string outName (fileName);
@@ -1022,7 +1155,9 @@ int main(int argc, char **argv)
     ParseAST(compiler.getPreprocessor(), &astConsumer, compiler.getASTContext());
     compiler.getDiagnosticClient().EndSourceFile();
 
-    // Output some #ifdefs
+
+
+    // Output some #ifdefs and block information
     outFile << "#define L_AND(a, b) a && b\n";
     outFile << "#define L_OR(a, b) a || b\n";
     outFile << "#ifndef STDIO_H\n";
@@ -1062,6 +1197,7 @@ int main(int argc, char **argv)
   //ResetFuncName();
   //CreateDangerFuncPathByDeep(func_main);
   //ShowDangerFuncPath();
+  // another output file, containing some information
   if (out.is_open()) out<< " \n";
   out.close();
   func_blocks<<pos%100000<<"\n";
