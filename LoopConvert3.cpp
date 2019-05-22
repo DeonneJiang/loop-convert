@@ -213,7 +213,10 @@ public:
         }
 		//左子树得到的 = 的左边
         Expr * lhs = BO->getLHS();
-        cp.name = rewrite.ConvertToString((Stmt*)lhs);
+        cp.name = ConvertToString((Stmt*)lhs);
+        std::string SStr;
+        llvm::raw_string_ostream S(SStr);
+        lhs->printPretty
         
         QualType qt = lhs->getType();
         #ifdef DEBUG

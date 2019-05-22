@@ -99,6 +99,9 @@ int             danger_func_path[2*_funcsum][_funcsum]={0};
 int             func_buf[_funcsum]={0};
 
 
+const int BUFSIZE = 80;
+std::string checkDataFileName = "checkData1.txt";//存入遍历free时得到的信息
+
 typedef struct checkPoint{
     //std::string flagName;
     std::string name;//插入点的变量
@@ -110,7 +113,10 @@ std::vector<checkPoint> cpVec;//存malloc时得到的点
 std::vector<checkPoint> cpVecF;//存free时得到的点,临时使用
 
 Rewriter       &rewrite;
-
+inline void loc_strToint(int & int_loc_row,int & int_loc_col,const char*str_loc){
+    char buf[BUFSIZE];
+    sscanf(str_loc,"%[^:]:%d:%d",buf,&int_loc_row,&int_loc_col);
+}
 
 
 class MyRecursiveASTVisitor
@@ -976,7 +982,7 @@ public:
         }
 		//左子树得到的 = 的左边
         Expr * lhs = BO->getLHS();
-        cp.name = rewrite.ConvertToString((Stmt*)lhs);
+        cp.name = ConvertToString((Stmt*)lhs);
         
         QualType qt = lhs->getType();
         #ifdef DEBUG
