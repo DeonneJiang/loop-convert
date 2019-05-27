@@ -60,15 +60,22 @@
 #include "clang/Tooling/Tooling.h"
 // Declares llvm::cl::extrahelp.
 #include "llvm/Support/CommandLine.h"
+
+
+
+
 using namespace clang;
-
-
 
 
 #define _funcsum 70
 #define _funcnamelen 50
 #define _dangerfuncsum 20
 #define _vartypesum 20
+
+
+
+
+
 
 int           stmtsum=0;
 std::ofstream out("/root/result.txt",std::ios::app);	
@@ -96,6 +103,18 @@ int             danger_func_path[2*_funcsum][_funcsum]={0};
 int             func_buf[_funcsum]={0};
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 class MyRecursiveASTVisitor
     : public RecursiveASTVisitor<MyRecursiveASTVisitor>
 {
@@ -113,7 +132,6 @@ class MyRecursiveASTVisitor
   bool VisitVarDecl(VarDecl *v);
   //int 	visitGlobalVariable (GlobalVariable &GV);
 
-
   bool VisitGlobalDecl(GlobalDecl *gd);
 
   Rewriter &Rewrite;
@@ -130,12 +148,11 @@ bool MyRecursiveASTVisitor::VisitGlobalDecl(GlobalDecl *gd){
   return true;
 }
 
-// Decl instrument
+// Decl instrument 把声明部分的注释做一个处理，和我们要做的关系不大
 bool MyRecursiveASTVisitor::VisitDecl(Decl* d){    
     ASTContext& ctx = d->getASTContext();
     SourceManager& sm = ctx.getSourceManager();
     
-
     const RawComment* rc = d->getASTContext().getRawCommentForDeclNoCache(d);
     if (rc)
     {
@@ -175,7 +192,7 @@ bool MyRecursiveASTVisitor::VisitDecl(Decl* d){
    /* */
 }
 
-// Override Binary Operator expressions
+// Override Binary Operator expressions，原始的一些东西，关系也不大
 Expr *MyRecursiveASTVisitor::VisitBinaryOperator(BinaryOperator *E){
   // Determine type of binary operator
   if (E->isLogicalOp())
@@ -210,7 +227,7 @@ Expr *MyRecursiveASTVisitor::VisitBinaryOperator(BinaryOperator *E){
 
 // AddrDisinfect - add after var
 void MyRecursiveASTVisitor::AddrDisinfect(Stmt *s){
-	char temp[100];
+	  char temp[100];
     //sprintf(temp,"\tint stack%d = %d;\n",stack,fs);
     SourceLocation ST = s->getBeginLoc();
     SourceManager& sr = Rewrite.getSourceMgr();
@@ -583,9 +600,8 @@ bool MyRecursiveASTVisitor::VisitStmt(Stmt *s){
     stack++;  
     llvm::errs() << "DeclStmt Found------------- \n";
     AddrDisinfect(s);
-  }
-    
-  if (isa<IfStmt>(s))
+  } 
+  else if (isa<IfStmt>(s))
   {
     llvm::errs() << "Found if\n";
     if (isa<CallExpr>(s)) llvm::errs() << "Found if&call\n";
@@ -595,8 +611,6 @@ bool MyRecursiveASTVisitor::VisitStmt(Stmt *s){
 
     // Add braces if needed to then clause
     //InstrumentStmt(TH,flag);// if has else if ,broken
-    
-
     Stmt *EL = If->getElse();
     if (EL)
     {
@@ -608,7 +622,7 @@ bool MyRecursiveASTVisitor::VisitStmt(Stmt *s){
         llvm::errs() << "found if in else\n";
         InstrumentStmt(TH,flag);
         InstrumentStmt(EL,flag);
-	    //VisitThinPath(TH,3);
+	      //VisitThinPath(TH,3);
         //VisitThinPath(EL,4);
       }
       else
@@ -641,12 +655,7 @@ bool MyRecursiveASTVisitor::VisitStmt(Stmt *s){
     Stmt *BODY = For->getBody();
     InstrumentStmt(BODY,flag);
     //VisitThinPath(BODY,5);
-
-  }/*
-  else if(isa<SwitchCase>(s))
-  {
-      llvm::errs() << "Found Switch Case\n";
-  }*/
+  }
   else if(isa<CaseStmt>(s))
   {
       llvm::errs() << "Found CaseStmt\n";
@@ -657,31 +666,11 @@ bool MyRecursiveASTVisitor::VisitStmt(Stmt *s){
       llvm::errs() << "Found DefaultStmt\n";
       InstrumentStmt(s,2);
 
-  }/*
-  else if(isa<SwitchStmt>(s))
-  {
-    flag = 1;
-      llvm::errs() << "Found Switch\n";
-      SwitchStmt *Switch = cast<SwitchStmt>(s);
-      SwitchCase *sc = Switch->getSwitchCaseList();
-      while(sc)
-      {
-        Stmt *BODY = sc->getSubStmt();
-        SourceLocation STT = sc->getBeginLoc();
-
-        llvm::errs() <<"switch pos"<< STT.getRawEncoding() << "\n";
-
-        InstrumentStmt(BODY,flag);
-        //VisitThinPath(BODY,1);
-        sc = sc->getNextSwitchCase();
-      }
-  }*/
+  }
   else if (isa<CallExpr>(s))
   {
   	llvm::errs() << "Found Call\n";
   	GetFuncCallGraph(s);
-    
-
   }
   else if (isa<ReturnStmt>(s)){
   	llvm::errs() << "Found Return\n";
@@ -746,10 +735,6 @@ bool MyRecursiveASTVisitor::VisitFunctionDecl(FunctionDecl *f)
     	<<func_call[i][1]<<func_call[i][2]<<func_call[i][3]<<func_call[i][4]<<func_call[i][5]<<"\n";
     	
 	}
-
-
-    
-    
     //llvm::errs() << "Exprloc"<<s->getExprLoc()<<"\n";
     //FF
     FuncEnd = sr.getEnd();
@@ -771,8 +756,7 @@ bool MyRecursiveASTVisitor::VisitFunctionDecl(FunctionDecl *f)
     else
        ret = "Other";
 
-    
-
+  
     if (f->isMain()){
       llvm::errs() << "Found main()\n";
       if (out.is_open()) out<<" Main";   
@@ -814,6 +798,30 @@ bool MyRecursiveASTVisitor::VisitFunctionDecl(FunctionDecl *f)
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // Unchanged from the cirewriter ----- begin
 
 class MyASTConsumer : public ASTConsumer
@@ -839,6 +847,33 @@ bool MyASTConsumer::HandleTopLevelDecl(DeclGroupRef d)
 }
 
 // Unchanged from the cirewriter ----- end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 // malloc place
 ast_matchers::StatementMatcher FreeVarMatcher   =   ast_matchers::declRefExpr(
@@ -919,6 +954,32 @@ ast_matchers::StatementMatcher MallocMatcher    =   ast_matchers::binaryOperator
                                                         )
                                                       ).bind("malloc");
 //
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
