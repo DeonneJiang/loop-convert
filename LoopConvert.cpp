@@ -1049,7 +1049,7 @@ int main(int argc, char **argv)
                                                 &compiler.getPreprocessor());
 
   MyASTConsumer astConsumer(Rewrite);
-  rewrite = Rewrite;
+
 
   // Convert <file>.c to <file_out>.c
   std::string outName (fileName);
