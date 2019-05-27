@@ -139,7 +139,11 @@ class MyRecursiveASTVisitor
 
 bool MyRecursiveASTVisitor::VisitVarDecl(VarDecl* v){
   if( v->hasGlobalStorage()){
-    llvm::errs()<< "we find a global decl!!!!!: " << v->getNameAsString() << "\n";
+    if(v->hasInit()){
+      llvm::errs()<< "we find a inited global decl!!!!!: " << v->getNameAsString() << "\n";
+    }else{
+      llvm::errs()<< "we find a uninited global decl!!!!!: " << v->getNameAsString() << "\n";
+    }
   }else{
     llvm::errs()<< "we find a local decl!!!!!: "  << v->getNameAsString() << "\n";
   }
